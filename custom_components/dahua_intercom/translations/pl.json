@@ -116,6 +116,11 @@
           "critical": "Krytyczne (dzwoni mimo wyciszenia)"
         }
       }
+    },
+    "text": {
+      "notify_sound": {
+        "name": "Dźwięk domofonu {phone}"
+      }
     }
   }
 }

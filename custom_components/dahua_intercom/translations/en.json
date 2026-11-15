@@ -116,6 +116,11 @@
           "critical": "Critical (rings when silenced)"
         }
       }
+    },
+    "text": {
+      "notify_sound": {
+        "name": "Ring sound {phone}"
+      }
     }
   }
 }

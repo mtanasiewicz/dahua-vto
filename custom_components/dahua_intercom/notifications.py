@@ -26,6 +26,7 @@ _LOGGER = logging.getLogger(__name__)
 
 LEVELS = ["off", "normal", "important", "critical"]
 DEFAULT_LEVEL = "important"
+DEFAULT_SOUND = "default"  # iOS: a file in the Companion app's Library/Sounds, or "default"
 TAG = "dahua_intercom_ring"
 ACTION_OPEN = "DAHUA_INTERCOM_OPEN"
 ACTION_IGNORE = "DAHUA_INTERCOM_IGNORE"
@@ -49,7 +50,7 @@ def discover_phones(hass: HomeAssistant) -> list[Phone]:
     return phones
 
 
-def _ring_payload(phone: Phone, level: str, *, url: str, image: str) -> dict:
+def _ring_payload(phone: Phone, level: str, *, url: str, image: str, sound: str = DEFAULT_SOUND) -> dict:
     data: dict = {
         "tag": TAG,
         "url": url,
@@ -63,12 +64,12 @@ def _ring_payload(phone: Phone, level: str, *, url: str, image: str) -> dict:
         if level == "critical":
             data["push"] = {
                 "interruption-level": "critical",
-                "sound": {"name": "default", "critical": 1, "volume": 1.0},
+                "sound": {"name": sound, "critical": 1, "volume": 1.0},
             }
         else:
             data["push"] = {
                 "interruption-level": "time-sensitive" if level == "important" else "active",
-                "sound": "default",
+                "sound": sound,
             }
     else:
         data.update(
@@ -102,17 +103,33 @@ class Notifier:
         self.image = f"/api/camera_proxy/{image_entity}"
         self.phones: list[Phone] = discover_phones(hass)
         self.levels: dict[str, str] = {p.service: DEFAULT_LEVEL for p in self.phones}
+        self.sounds: dict[str, str] = {}
         self._sent: set[str] = set()
 
     def set_level(self, service: str, level: str) -> None:
         if level in LEVELS:
             self.levels[service] = level
 
+    def set_sound(self, service: str, sound: str) -> None:
+        self.sounds[service] = sound.strip() or DEFAULT_SOUND
+
     async def ring(self) -> None:
         targets = [p for p in self.phones if self.levels.get(p.service, DEFAULT_LEVEL) != "off"]
         self._sent = {p.service for p in targets}
         await asyncio.gather(
-            *(self._send(p, _ring_payload(p, self.levels[p.service], url=self.url, image=self.image)) for p in targets)
+            *(
+                self._send(
+                    p,
+                    _ring_payload(
+                        p,
+                        self.levels[p.service],
+                        url=self.url,
+                        image=self.image,
+                        sound=self.sounds.get(p.service, DEFAULT_SOUND),
+                    ),
+                )
+                for p in targets
+            )
         )
 
     async def clear(self) -> None:
