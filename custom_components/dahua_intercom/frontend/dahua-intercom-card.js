@@ -15,8 +15,10 @@
  *   Zakończ  - end the call (for everybody)
  *   Otwórz   - open the gate
  * The tap that answers/joins also unmutes and enables the microphone (iOS autoplay rules).
+ * While talking, the badge shows a microphone level bar; without microphone access the
+ * status says so (otherwise you hear the door but nobody hears you, with no hint why).
  */
-const VERSION = "0.8.0";
+const VERSION = "0.8.1";
 const LIVE_PARAM = "intercom";
 const LIVE_ON_DEMAND_MS = 60000;
 
@@ -120,6 +122,11 @@ class DahuaIntercomCard extends HTMLElement {
         .badge { position:absolute; top:8px; left:8px; background:rgba(0,0,0,.5); color:#fff; border-radius:12px;
                  padding:2px 8px; font-size:12px; }
         .badge[hidden] { display:none; }
+        .level { display:inline-block; vertical-align:middle; width:40px; height:6px; margin-left:6px;
+                 background:rgba(255,255,255,.25); border-radius:3px; overflow:hidden; }
+        .level > i { display:block; height:100%; width:0; background:#43a047; transition: width .08s linear; }
+        .level[hidden] { display:none; }
+        .status.error { color: var(--error-color, #db4437); font-weight: 600; }
         .play { position:absolute; top:8px; right:8px; width:44px; height:44px; padding:0; border-radius:50%;
                 background:rgba(0,0,0,.55); flex-direction:row; justify-content:center; }
         .play ha-icon { --mdc-icon-size: 28px; }
@@ -141,7 +148,7 @@ class DahuaIntercomCard extends HTMLElement {
           <img alt="">
           <video playsinline autoplay muted hidden></video>
           <div class="overlay" hidden></div>
-          <div class="badge" hidden></div>
+          <div class="badge" hidden><span class="badge-text"></span><span class="level" hidden><i></i></span></div>
           <button class="play" hidden title="Podgląd na żywo"><ha-icon icon="mdi:play"></ha-icon></button>
         </div>
         <div class="buttons">
@@ -153,7 +160,7 @@ class DahuaIntercomCard extends HTMLElement {
     const $ = (s) => root.querySelector(s);
     this._els = {
       title: $(".title"), status: $(".status"), video: $("video"), img: $("img"), overlay: $(".overlay"),
-      badge: $(".badge"), answer: $(".answer"), answerLabel: $(".answer-label"), answerIcon: $(".answer ha-icon"),
+      badge: $(".badge"), badgeText: $(".badge-text"), level: $(".level"), levelBar: $(".level > i"), answer: $(".answer"), answerLabel: $(".answer-label"), answerIcon: $(".answer ha-icon"),
       hangup: $(".hangup"), open: $(".open"), play: $(".play"), playIcon: $(".play ha-icon"),
     };
     this._els.play.addEventListener("click", (e) => {
@@ -176,13 +183,15 @@ class DahuaIntercomCard extends HTMLElement {
     const inCall = IN_CALL.includes(s);
     let label;
     if (this._flash) label = this._flash;
+    else if (this._micError && this._joined) label = this._micError;
     else if (this._error && this._pc) label = LABELS.error;
     else if (s === "calling") label = LABELS.calling;
     else if (inCall) label = this._joined ? LABELS.talking : LABELS.talking_elsewhere;
     else if (ringing) label = LABELS.ringing;
     else label = "";
     this._els.status.textContent = label;
-    this._els.status.className = "status " + (ringing ? "ringing" : inCall ? "talking" : "");
+    const micErr = !!(this._micError && this._joined && !this._flash);
+    this._els.status.className = "status " + (micErr ? "error" : ringing ? "ringing" : inCall ? "talking" : "");
 
     let primary = "Połącz", icon = "mdi:phone";
     if (ringing) primary = "Odbierz";
@@ -205,13 +214,51 @@ class DahuaIntercomCard extends HTMLElement {
     this._els.overlay.textContent = overlay;
     this._els.overlay.hidden = !overlay;
     const micOn = this._micTrack && this._micTrack.enabled;
-    this._els.badge.textContent = micOn ? "🎙 mikrofon" : live ? "na żywo" : "";
-    this._els.badge.hidden = !this._els.badge.textContent;
+    this._els.badgeText.textContent = micOn ? "🎙 mikrofon" : live ? "na żywo" : "";
+    this._els.badge.hidden = !this._els.badgeText.textContent;
+    this._els.level.hidden = !micOn;
+    if (micOn) this._startLevel(); else this._stopLevel();
     // play over the still picture; stop while live only because of it (or the notification)
     const onDemand = this._onDemandOnly();
     this._els.play.hidden = !(onDemand || (!this._pc && !ringing && !inCall));
     this._els.playIcon.setAttribute("icon", onDemand ? "mdi:stop" : "mdi:play");
     this._els.play.title = onDemand ? "Wróć do zdjęć" : "Podgląd na żywo";
+  }
+
+  /** Microphone level in the badge: shows at once whether the browser hears you. */
+  _startLevel() {
+    if (this._levelRaf || !this._micStream) return;
+    try {
+      if (!this._audioCtx) this._audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (this._audioCtx.state === "suspended") this._audioCtx.resume().catch(() => {});
+      if (this._levelStream !== this._micStream) {
+        if (this._levelSrc) this._levelSrc.disconnect();
+        this._levelSrc = this._audioCtx.createMediaStreamSource(this._micStream);
+        this._analyser = this._audioCtx.createAnalyser();
+        this._analyser.fftSize = 512;
+        this._levelSrc.connect(this._analyser);
+        this._levelStream = this._micStream;
+      }
+    } catch (e) {
+      console.warn("intercom: level meter", e);
+      return;
+    }
+    const buf = new Float32Array(this._analyser.fftSize);
+    const tick = () => {
+      this._analyser.getFloatTimeDomainData(buf);
+      let sum = 0;
+      for (const x of buf) sum += x * x;
+      const rms = Math.sqrt(sum / buf.length);
+      this._els.levelBar.style.width = Math.min(100, Math.round(rms * 400)) + "%";
+      this._levelRaf = requestAnimationFrame(tick);
+    };
+    this._levelRaf = requestAnimationFrame(tick);
+  }
+
+  _stopLevel() {
+    if (this._levelRaf) cancelAnimationFrame(this._levelRaf);
+    this._levelRaf = null;
+    if (this._els) this._els.levelBar.style.width = "0";
   }
 
   _flashMessage(text) {
@@ -423,9 +470,15 @@ class DahuaIntercomCard extends HTMLElement {
         this._micStream = await navigator.mediaDevices.getUserMedia({
           audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
         });
+        this._micError = null;
       } catch (e) {
         console.warn("intercom: no microphone", e);
+        this._micError = e && (e.name === "NotAllowedError" || e.name === "SecurityError")
+          ? "Brak zgody na mikrofon"
+          : e && e.name === "NotFoundError" ? "Nie znaleziono mikrofonu" : "Mikrofon niedostępny";
       }
+    } else if (!needMic) {
+      this._micError = null;
     }
     if (gen !== this._gen) return;
     this._micTrack = this._micStream ? this._micStream.getAudioTracks()[0] : null;
@@ -512,6 +565,7 @@ class DahuaIntercomCard extends HTMLElement {
     clearTimeout(this._failTimer);
     if (this._unsub) { try { this._unsub(); } catch (e) { /* closed */ } this._unsub = null; }
     if (this._pc) { this._pc.ontrack = null; this._pc.oniceconnectionstatechange = null; this._pc.close(); this._pc = null; }
+    if (!keepMic) this._stopLevel();
     if (!keepMic && this._micStream) {
       this._micStream.getTracks().forEach((t) => t.stop());
       this._micStream = null;
