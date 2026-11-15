@@ -50,7 +50,19 @@ def discover_phones(hass: HomeAssistant) -> list[Phone]:
     return phones
 
 
+LIVE_PARAM = "intercom=live"  # tells the card it was opened from the ring: go live at once
+
+
+def live_url(url: str) -> str:
+    """The notify URL with the card's go-live flag (before any #fragment)."""
+    if not url:
+        return url
+    base, sep, frag = url.partition("#")
+    return f"{base}{'&' if '?' in base else '?'}{LIVE_PARAM}{sep}{frag}"
+
+
 def _ring_payload(phone: Phone, level: str, *, url: str, image: str, sound: str = DEFAULT_SOUND) -> dict:
+    url = live_url(url)
     data: dict = {
         "tag": TAG,
         "image": image,

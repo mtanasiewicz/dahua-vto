@@ -4,6 +4,8 @@
  * Idle: a still picture refreshed every few seconds (little data).
  * Ringing, or a call active on any device: live picture + door audio over
  * WebRTC (Home Assistant's camera WebRTC API).
+ * Opened from the ring notification (URL has ?intercom=live): live for a minute,
+ * even if the ring is already over by then.
  *
  * Buttons:
  *   Odbierz  - answer the ring (this device talks)
@@ -13,7 +15,9 @@
  *   Otwórz   - open the gate
  * The tap that answers/joins also unmutes and enables the microphone (iOS autoplay rules).
  */
-const VERSION = "0.6.0";
+const VERSION = "0.7.0";
+const LIVE_PARAM = "intercom";
+const LIVE_FROM_NOTIFICATION_MS = 60000;
 
 const DEFAULTS = {
   camera: "camera.domofon_intercom",
@@ -75,12 +79,19 @@ class DahuaIntercomCard extends HTMLElement {
 
   connectedCallback() {
     this._onVisibility = () => this._sync();
+    this._onLocation = () => { if (this._takeLiveParam() && this._hass) this._sync(); };
     document.addEventListener("visibilitychange", this._onVisibility);
+    window.addEventListener("location-changed", this._onLocation);
+    window.addEventListener("popstate", this._onLocation);
+    this._takeLiveParam();
     if (this._hass) this._sync();
   }
 
   disconnectedCallback() {
     document.removeEventListener("visibilitychange", this._onVisibility);
+    window.removeEventListener("location-changed", this._onLocation);
+    window.removeEventListener("popstate", this._onLocation);
+    clearTimeout(this._liveTimer);
     this._stop();
     this._stopSnapshots();
   }
@@ -202,7 +213,21 @@ class DahuaIntercomCard extends HTMLElement {
 
   _liveWanted() {
     const s = this._callState;
-    return this._visible() && (s === "ringing" || IN_CALL.includes(s) || !!this._joined);
+    const fromNotification = Date.now() < (this._liveUntil || 0);
+    return this._visible() && (s === "ringing" || IN_CALL.includes(s) || !!this._joined || fromNotification);
+  }
+
+  /** The ring notification opens the page with ?intercom=live: go live at once, for a while. */
+  _takeLiveParam() {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get(LIVE_PARAM) !== "live") return false;
+    url.searchParams.delete(LIVE_PARAM);
+    // drop it so a reload or a later visit shows still pictures again
+    window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash);
+    this._liveUntil = Date.now() + LIVE_FROM_NOTIFICATION_MS;
+    clearTimeout(this._liveTimer);
+    this._liveTimer = setTimeout(() => this._sync(), LIVE_FROM_NOTIFICATION_MS + 100);
+    return true;
   }
 
   /** Pick the mode: live stream while ringing / in a call, still pictures otherwise. */

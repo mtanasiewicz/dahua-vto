@@ -28,7 +28,9 @@ Closing it hangs up after a few seconds.
 
 Option *Page opened from the ring notification*: the path of the dashboard view with the
 intercom card (e.g. `/dashboard-domofon/domofon`). There is no default; when empty, tapping the
-notification opens the app's home page.
+notification opens the app's home page. The integration adds `?intercom=live` to that path, and
+the card then shows the live stream at once for a minute (even if the ring is already over),
+instead of the still pictures it shows when idle.
 
 Ring notifications are sent by the integration to every phone registered with the Companion app.
 Per phone (entities of the intercom device):
