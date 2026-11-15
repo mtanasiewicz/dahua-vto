@@ -30,6 +30,10 @@ The integration adds a **Domofon** panel to the sidebar (`/domofon`): the interc
 as the screen allows. It works with any dashboard layout, so ring notifications open this panel by
 default (option *Notification URL*).
 
+The built-in panel cannot be edited. To add your own buttons, create a regular dashboard
+(e.g. `/dashboard-domofon`) with the `custom:dahua-intercom-card`, set *Notification URL* to it
+(e.g. `/dashboard-domofon/domofon`) and turn off the option *Show the built-in "Domofon" panel*.
+
 Ring notifications are sent by the integration to every phone registered with the Companion app.
 Per phone (entities of the intercom device):
 

@@ -20,6 +20,7 @@ from .const import (
     CONF_LOCK,
     CONF_MAIN_STREAM,
     CONF_NOTIFY_URL,
+    CONF_SHOW_PANEL,
     DEFAULT_LOCK,
     DEFAULT_NOTIFY_URL,
     CONF_MONITOR_TARGET,
@@ -144,6 +145,7 @@ class DahuaIntercomOptionsFlow(OptionsFlow):
                 vol.Required(CONF_LOCK, default=o.get(CONF_LOCK, DEFAULT_LOCK)): EntitySelector(
                     EntitySelectorConfig(domain=["lock", "button", "script", "switch"])
                 ),
+                vol.Required(CONF_SHOW_PANEL, default=o.get(CONF_SHOW_PANEL, True)): bool,
                 vol.Required(CONF_NOTIFY_URL, default=o.get(CONF_NOTIFY_URL, DEFAULT_NOTIFY_URL)): str,
                 vol.Optional(CONF_PUBLIC_HOST, default=o.get(CONF_PUBLIC_HOST, "")): str,
                 vol.Required(CONF_WEBRTC_PORT, default=o.get(CONF_WEBRTC_PORT, DEFAULT_WEBRTC_PORT)): int,

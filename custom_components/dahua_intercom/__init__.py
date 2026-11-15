@@ -19,6 +19,7 @@ from .const import (
     CONF_LOCAL_IP,
     CONF_LOCK,
     CONF_NOTIFY_URL,
+    CONF_SHOW_PANEL,
     DEFAULT_LOCK,
     DEFAULT_NOTIFY_URL,
     CONF_LOCAL_SIP_PORT,
@@ -95,7 +96,8 @@ def _default_public_host(hass: HomeAssistant) -> str:
 
 async def async_setup_entry(hass: HomeAssistant, entry: IntercomConfigEntry) -> bool:
     await _register_card(hass)
-    await _register_panel(hass)
+    if _opt(entry, CONF_SHOW_PANEL, True):
+        await _register_panel(hass)
     host = entry.data[CONF_HOST]
     local_ip = _opt(entry, CONF_LOCAL_IP, "") or await network.async_get_source_ip(hass, target_ip=host)
     core = IntercomCore(
