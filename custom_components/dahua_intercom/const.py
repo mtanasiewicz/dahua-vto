@@ -17,6 +17,8 @@ CONF_MAIN_STREAM = "main_stream"
 CONF_PUBLIC_HOST = "public_host"
 CONF_WEBRTC_PORT = "webrtc_port"
 CONF_GO2RTC_API_PORT = "go2rtc_api_port"
+CONF_LOCK = "lock_entity"
+CONF_NOTIFY_URL = "notify_url"
 
 DEFAULT_SIP_PORT = 5060
 DEFAULT_USERNAME = "9901#1"
@@ -30,6 +32,8 @@ DEFAULT_SOURCE_CAMERA = "camera.domofon"
 DEFAULT_WEBRTC_PORT = 8556
 DEFAULT_GO2RTC_API_PORT = 11985
 UPSTREAM_IDLE_S = 30
+DEFAULT_LOCK = "lock.domofon_elektrozaczep"
+DEFAULT_NOTIFY_URL = "/lovelace/parter"
 
 STATE_IDLE = "idle"
 STATE_RINGING = "ringing"

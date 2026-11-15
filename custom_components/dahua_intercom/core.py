@@ -29,6 +29,7 @@ from .const import (
 )
 from .go2rtc import Go2rtc, WebRtcSession
 from .media import MediaRelay
+from .notifications import ACTION_OPEN, Notifier
 from .rtsp import RtspServer
 from .sip import Call, SipAgent
 from .vto_rtsp import VtoRtspClient
@@ -63,9 +64,14 @@ class IntercomCore:
         webrtc_port: int,
         go2rtc_api_port: int,
         storage_dir: str,
+        lock_entity: str,
+        notify_url: str,
     ) -> None:
         self.hass = hass
         self.entry_id = entry_id
+        self.lock_entity = lock_entity
+        self.notifier = Notifier(hass, url=notify_url, image_entity=source_camera)
+        self._unsub_action = None
         self.monitor_target = monitor_target
         self.source_camera = source_camera
         self.main_stream = main_stream
@@ -103,12 +109,16 @@ class IntercomCore:
         self._busy = asyncio.Lock()
 
     async def start(self) -> None:
+        self._unsub_action = self.hass.bus.async_listen("mobile_app_notification_action", self._on_notification_action)
         await self.media.start()
         await self.rtsp.start()
         await self.sip.start()
         await self.go2rtc.start()
 
     async def stop(self) -> None:
+        if self._unsub_action:
+            self._unsub_action()
+            self._unsub_action = None
         await self.sip.stop()
         if self.upstream:
             await self.upstream.stop()
@@ -165,6 +175,23 @@ class IntercomCore:
             ok = await self.sip.call_out(self.monitor_target)
             _LOGGER.info("Outgoing call to %s %s", self.monitor_target, "ok" if ok else "failed")
             return ok
+
+    async def async_open(self) -> None:
+        """Open the gate; if it is ringing, also stop the ringing on every device."""
+        domain = self.lock_entity.split(".")[0]
+        service = {"lock": "unlock", "button": "press", "script": "turn_on"}.get(domain, "turn_on")
+        await self.hass.services.async_call(domain, service, {"entity_id": self.lock_entity}, blocking=True)
+        if self.ringing:
+            # answering and hanging up at once makes the VTO cancel the ring on the panel and phones
+            if await self.async_answer():
+                await asyncio.sleep(0.5)
+                await self.async_hangup()
+
+    @callback
+    def _on_notification_action(self, event) -> None:
+        if event.data.get("action") == ACTION_OPEN:
+            _LOGGER.info("Open from notification")
+            self.hass.async_create_task(self.async_open())
 
     async def async_snapshot(self) -> bytes | None:
         self._update_upstream(force=True)
@@ -241,6 +268,18 @@ class IntercomCore:
         if event == "registration":
             self._refresh()
             return
+        was_ringing = self.ringing
+        self._handle_sip_event(event, call)
+        if self.ringing and not was_ringing:
+            self.hass.async_create_task(self.notifier.ring())
+        elif was_ringing and not self.ringing:
+            # answered here, on another phone or on the indoor panel, or the caller gave up
+            self.hass.async_create_task(self.notifier.clear())
+        self._update_upstream()
+        self._refresh()
+
+    @callback
+    def _handle_sip_event(self, event: str, call: Call | None) -> None:
         if event == "ringing" and call is not None:
             self.ringing = True
             self.caller = call.caller
@@ -277,8 +316,6 @@ class IntercomCore:
                 self.caller = None
                 self.answered_at = None
             self.hass.bus.async_fire(EVENT_CALL, {"state": STATE_IDLE, "reason": reason, "entry_id": self.entry_id})
-        self._update_upstream()
-        self._refresh()
 
     @callback
     def _refresh(self) -> None:

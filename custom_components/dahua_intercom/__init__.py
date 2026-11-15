@@ -16,6 +16,10 @@ from homeassistant.exceptions import ConfigEntryNotReady
 from .const import (
     CONF_GO2RTC_API_PORT,
     CONF_LOCAL_IP,
+    CONF_LOCK,
+    CONF_NOTIFY_URL,
+    DEFAULT_LOCK,
+    DEFAULT_NOTIFY_URL,
     CONF_LOCAL_SIP_PORT,
     CONF_MAIN_STREAM,
     CONF_MONITOR_TARGET,
@@ -43,7 +47,7 @@ from .core import IntercomCore
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = [Platform.BINARY_SENSOR, Platform.BUTTON, Platform.CAMERA, Platform.EVENT, Platform.SENSOR]
+PLATFORMS = [Platform.BINARY_SENSOR, Platform.BUTTON, Platform.CAMERA, Platform.EVENT, Platform.SELECT, Platform.SENSOR]
 
 CARD_URL = "/dahua_intercom/dahua-intercom-card.js"
 
@@ -94,6 +98,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: IntercomConfigEntry) -> 
         webrtc_port=_opt(entry, CONF_WEBRTC_PORT, DEFAULT_WEBRTC_PORT),
         go2rtc_api_port=_opt(entry, CONF_GO2RTC_API_PORT, DEFAULT_GO2RTC_API_PORT),
         storage_dir=hass.config.path(DOMAIN),
+        lock_entity=_opt(entry, CONF_LOCK, DEFAULT_LOCK),
+        notify_url=_opt(entry, CONF_NOTIFY_URL, DEFAULT_NOTIFY_URL),
     )
     try:
         await core.start()

@@ -17,7 +17,11 @@ from homeassistant.helpers.selector import EntitySelector, EntitySelectorConfig
 from .const import (
     CONF_LOCAL_IP,
     CONF_LOCAL_SIP_PORT,
+    CONF_LOCK,
     CONF_MAIN_STREAM,
+    CONF_NOTIFY_URL,
+    DEFAULT_LOCK,
+    DEFAULT_NOTIFY_URL,
     CONF_MONITOR_TARGET,
     CONF_PUBLIC_HOST,
     CONF_SOURCE_CAMERA,
@@ -137,6 +141,10 @@ class DahuaIntercomOptionsFlow(OptionsFlow):
                     EntitySelectorConfig(domain="camera")
                 ),
                 vol.Required(CONF_MAIN_STREAM, default=o.get(CONF_MAIN_STREAM, False)): bool,
+                vol.Required(CONF_LOCK, default=o.get(CONF_LOCK, DEFAULT_LOCK)): EntitySelector(
+                    EntitySelectorConfig(domain=["lock", "button", "script", "switch"])
+                ),
+                vol.Required(CONF_NOTIFY_URL, default=o.get(CONF_NOTIFY_URL, DEFAULT_NOTIFY_URL)): str,
                 vol.Optional(CONF_PUBLIC_HOST, default=o.get(CONF_PUBLIC_HOST, "")): str,
                 vol.Required(CONF_WEBRTC_PORT, default=o.get(CONF_WEBRTC_PORT, DEFAULT_WEBRTC_PORT)): int,
                 vol.Required(CONF_MONITOR_TARGET, default=o.get(CONF_MONITOR_TARGET, DEFAULT_MONITOR_TARGET)): str,

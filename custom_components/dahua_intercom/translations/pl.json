@@ -47,7 +47,9 @@
           "source_camera": "Kamera ze strumieniem RTSP domofonu (obraz i dźwięk z furtki)",
           "main_stream": "Użyj strumienia głównego (wyższa rozdzielczość, więcej danych)",
           "public_host": "Publiczna nazwa hosta dla WebRTC (puste = z adresu zewnętrznego)",
-          "webrtc_port": "Port WebRTC (przekieruj TCP+UDP na routerze dla 5G)"
+          "webrtc_port": "Port WebRTC (przekieruj TCP+UDP na routerze dla 5G)",
+          "lock_entity": "Elektrozaczep furtki (przycisk Otwórz)",
+          "notify_url": "Strona otwierana z powiadomienia o dzwonku"
         }
       }
     }
@@ -70,6 +72,9 @@
       },
       "live_view": {
         "name": "Połącz"
+      },
+      "open": {
+        "name": "Otwórz furtkę"
       }
     },
     "event": {
@@ -99,6 +104,17 @@
     "camera": {
       "intercom": {
         "name": "Domofon"
+      }
+    },
+    "select": {
+      "notify_level": {
+        "name": "Powiadomienia domofonu {phone}",
+        "state": {
+          "off": "Wyłączone",
+          "normal": "Zwykłe",
+          "important": "Ważne (przez tryb skupienia)",
+          "critical": "Krytyczne (dzwoni mimo wyciszenia)"
+        }
       }
     }
   }

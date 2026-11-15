@@ -11,7 +11,9 @@ from .entity import IntercomEntity
 
 async def async_setup_entry(hass: HomeAssistant, entry: IntercomConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
     core = entry.runtime_data
-    async_add_entities([AnswerButton(core, "answer"), HangupButton(core, "hangup"), LiveViewButton(core, "live_view")])
+    async_add_entities(
+        [AnswerButton(core, "answer"), HangupButton(core, "hangup"), LiveViewButton(core, "live_view"), OpenButton(core, "open")]
+    )
 
 
 class AnswerButton(IntercomEntity, ButtonEntity):
@@ -33,3 +35,10 @@ class LiveViewButton(IntercomEntity, ButtonEntity):
 
     async def async_press(self) -> None:
         await self.core.async_live_view()
+
+
+class OpenButton(IntercomEntity, ButtonEntity):
+    _attr_icon = "mdi:door-open"
+
+    async def async_press(self) -> None:
+        await self.core.async_open()

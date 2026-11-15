@@ -13,7 +13,7 @@
  *   Otwórz   - open the gate
  * The tap that answers/joins also unmutes and enables the microphone (iOS autoplay rules).
  */
-const VERSION = "0.4.0";
+const VERSION = "0.5.0";
 
 const DEFAULTS = {
   camera: "camera.domofon_intercom",
@@ -22,6 +22,7 @@ const DEFAULTS = {
   call: "button.domofon_live_view",
   hangup: "button.domofon_hang_up",
   lock: "lock.domofon_elektrozaczep",
+  open: "button.domofon_open",
   title: "Domofon",
   snapshot_interval: 3,
   snapshot_width: 640,
@@ -290,7 +291,8 @@ class DahuaIntercomCard extends HTMLElement {
   }
 
   async _open() {
-    const entity = this._config.lock;
+    // the integration's Open button also stops the ringing on every device
+    const entity = this._config.open && this._hass.states[this._config.open] ? this._config.open : this._config.lock;
     const domain = entity.split(".")[0];
     try {
       if (domain === "lock") await this._hass.callService("lock", "unlock", { entity_id: entity });

@@ -47,7 +47,9 @@
           "source_camera": "Camera with the door station RTSP stream (picture and door audio)",
           "main_stream": "Use the main stream (higher resolution, more data)",
           "public_host": "Public host name for WebRTC (empty = from the external URL)",
-          "webrtc_port": "WebRTC port (forward TCP+UDP on the router for mobile data)"
+          "webrtc_port": "WebRTC port (forward TCP+UDP on the router for mobile data)",
+          "lock_entity": "Gate lock (Open button)",
+          "notify_url": "Page opened from the ring notification"
         }
       }
     }
@@ -70,6 +72,9 @@
       },
       "live_view": {
         "name": "Call"
+      },
+      "open": {
+        "name": "Open gate"
       }
     },
     "event": {
@@ -99,6 +104,17 @@
     "camera": {
       "intercom": {
         "name": "Intercom"
+      }
+    },
+    "select": {
+      "notify_level": {
+        "name": "Ring notifications {phone}",
+        "state": {
+          "off": "Off",
+          "normal": "Normal",
+          "important": "Important (breaks through Focus)",
+          "critical": "Critical (rings when silenced)"
+        }
       }
     }
   }
