@@ -83,8 +83,8 @@ def _ring_payload(phone: Phone, level: str, *, url: str, image: str, sound: str 
                 # (only a dot on the icon, no pop-up) gets a fresh, high-importance channel.
                 "channel": {
                     "critical": "alarm_stream",
-                    "important": "Dzwonek domofonu",
-                    "normal": "Dzwonek domofonu (zwykły)",
+                    "important": "ha-doorbell",
+                    "normal": "ha-doorbell-normal",
                 }[level],
                 "visibility": "public",
             }
