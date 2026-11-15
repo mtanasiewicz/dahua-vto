@@ -9,6 +9,7 @@ microphone on the backchannel. The mixer:
 """
 from __future__ import annotations
 
+import sys
 from array import array
 from collections import deque
 
@@ -44,10 +45,23 @@ def _alaw_encode(pcm: int) -> int:
     return ((seg << 4) | aval) ^ mask
 
 
+def _ulaw_encode(pcm: int) -> int:
+    bias, clip = 0x84, 32635
+    sign = 0x80 if pcm < 0 else 0
+    pcm = min(abs(pcm), clip) + bias
+    exp = 7
+    for exp in range(7, -1, -1):
+        if pcm & (0x4000 >> (7 - exp)):
+            break
+    mant = (pcm >> (exp + 3)) & 0x0F
+    return ~(sign | (exp << 4) | mant) & 0xFF
+
+
 ALAW_DEC = [_alaw_decode(i) for i in range(256)]
 ULAW_DEC = [_ulaw_decode(i) for i in range(256)]
 # index: (sample >> 3) + 4096 for sample in -32768..32767 (13-bit resolution is all A-law keeps)
 _ALAW_ENC = bytes(_alaw_encode((i - 4096) << 3) for i in range(8192))
+_ULAW_ENC = bytes(_ulaw_encode((i - 4096) << 3) for i in range(8192))
 
 MAX_BUFFER = 4000  # 0.5 s at 8 kHz; older audio is dropped to keep latency low
 
@@ -59,6 +73,53 @@ def decode(payload: bytes, pt: int) -> array:
 
 def encode_alaw(samples) -> bytes:
     enc = _ALAW_ENC
+    return bytes(enc[(max(-32768, min(32767, s)) >> 3) + 4096] for s in samples)
+
+
+def codec_name(rtpmap: str) -> str:
+    """"PCMA/8000" -> "PCMA"."""
+    return rtpmap.split("/")[0].upper()
+
+
+def decode_door(payload: bytes, name: str) -> list[int] | None:
+    """Door-station audio payload to PCM samples; None for codecs we cannot mix."""
+    if name == "PCMA":
+        return [ALAW_DEC[b] for b in payload]
+    if name == "PCMU":
+        return [ULAW_DEC[b] for b in payload]
+    if name == "L16":  # 16-bit big-endian (RFC 3551)
+        a = array("h", payload[: len(payload) // 2 * 2])
+        if sys.byteorder == "little":
+            a.byteswap()
+        return a.tolist()
+    return None
+
+
+def encode_door(samples: list[int], name: str) -> bytes:
+    if name == "PCMA":
+        return encode_alaw(samples)
+    if name == "PCMU":
+        return encode_ulaw(samples)
+    a = array("h", (max(-32768, min(32767, s)) for s in samples))
+    if sys.byteorder == "little":
+        a.byteswap()
+    return a.tobytes()
+
+
+def upsample(samples: list[int], factor: int) -> list[int]:
+    """8 kHz microphone audio to the door stream rate (linear interpolation)."""
+    if factor <= 1:
+        return samples
+    out: list[int] = []
+    nxt = samples[1:] + samples[-1:]
+    for a, b in zip(samples, nxt):
+        for k in range(factor):
+            out.append(a + (b - a) * k // factor)
+    return out
+
+
+def encode_ulaw(samples) -> bytes:
+    enc = _ULAW_ENC
     return bytes(enc[(max(-32768, min(32767, s)) >> 3) + 4096] for s in samples)
 
 

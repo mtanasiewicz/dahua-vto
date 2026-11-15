@@ -14,7 +14,7 @@ import struct
 import time
 from typing import Callable
 
-from .audio_mix import Speaker, decode, encode_alaw, mix_into
+from .audio_mix import Speaker, codec_name, decode, decode_door, encode_alaw, encode_door, mix_into, upsample
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -313,7 +313,7 @@ class RtspServer:
         track = TRACK_VIDEO if kind == "video" else TRACK_AUDIO
         keyframe = track == TRACK_VIDEO and self._sniff_params(pkt)
         out = self._tracks[track].rewrite(pkt)
-        if track == TRACK_AUDIO and self._codecs[TRACK_AUDIO].pt == 8:
+        if track == TRACK_AUDIO and codec_name(self._codecs[TRACK_AUDIO].rtpmap) in ("PCMA", "PCMU", "L16"):
             self._push_audio_mixed(out)
             return
         if track == TRACK_VIDEO:
@@ -328,24 +328,34 @@ class RtspServer:
                 c.send_rtp(track, out)
 
     def _push_audio_mixed(self, out: bytes) -> None:
-        """Door audio to each viewer, with the other viewers' microphones mixed in."""
+        """Door audio to each viewer, with the other viewers' microphones mixed in.
+
+        Microphones arrive as 8 kHz G.711; the door stream may be G.711 or L16 at a
+        higher rate (the VTO sends L16/16000), so peers are upsampled to its rate.
+        """
         players = [c for c in self._clients if c.playing]
+        codec = self._codecs[TRACK_AUDIO]
+        name = codec_name(codec.rtpmap)
         payload = _rtp_payload(out)
-        n = len(payload)
+        width = 2 if name == "L16" else 1
+        n_door = len(payload) // width
+        factor = max(1, codec.clock // 8000)
+        n_mic = n_door // factor
         chunks = {}
-        for c in self._clients:
-            chunk = Speaker.take(c.speaker.to_peers, n)
-            if chunk is not None:
-                chunks[c] = chunk
-        if not chunks or n == 0:
+        if n_mic:
+            for c in self._clients:
+                chunk = Speaker.take(c.speaker.to_peers, n_mic)
+                if chunk is not None:
+                    chunks[c] = upsample(chunk, factor)
+        door = decode_door(payload, name) if chunks else None
+        if door is None:
             for c in players:
                 c.send_rtp(TRACK_AUDIO, out)
             return
-        header = out[: len(out) - n]
-        door = list(decode(payload, 8))
+        header = out[: len(out) - len(payload)]
         for c in players:
-            parts = [chunk for x, chunk in chunks.items() if x is not c]
-            c.send_rtp(TRACK_AUDIO, header + encode_alaw(mix_into(door, parts)) if parts else out)
+            parts = [chunk[: len(door)] for x, chunk in chunks.items() if x is not c]
+            c.send_rtp(TRACK_AUDIO, header + encode_door(mix_into(door, parts), name) if parts else out)
 
     def pull_door_frame(self, n: int = 160) -> bytes | None:
         """n samples of all viewers' microphones mixed, A-law, for the door station; None if nobody talks."""
