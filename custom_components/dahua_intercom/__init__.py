@@ -6,7 +6,8 @@ import os
 import urllib.parse
 
 from homeassistant.components import network
-from homeassistant.components.frontend import add_extra_js_url
+from homeassistant.components import panel_custom
+from homeassistant.components.frontend import add_extra_js_url, async_remove_panel
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME, Platform
@@ -30,6 +31,7 @@ from .const import (
     DEFAULT_SOURCE_CAMERA,
     DEFAULT_WEBRTC_PORT,
     DOMAIN,
+    PANEL_URL_PATH,
     CONF_REALM,
     CONF_RTP_PORT,
     CONF_RTSP_HOST,
@@ -67,6 +69,23 @@ async def _register_card(hass: HomeAssistant) -> None:
     await hass.http.async_register_static_paths([StaticPathConfig(CARD_URL, path, cache_headers=False)])
     version = await hass.async_add_executor_job(lambda: int(os.path.getmtime(path)))
     add_extra_js_url(hass, f"{CARD_URL}?v={version}")
+    hass.data[f"{DOMAIN}_card_version"] = version
+
+
+async def _register_panel(hass: HomeAssistant) -> None:
+    """Sidebar panel "Domofon": the card full screen; notifications open it."""
+    if hass.data.get(f"{DOMAIN}_panel"):
+        return
+    hass.data[f"{DOMAIN}_panel"] = True
+    await panel_custom.async_register_panel(
+        hass,
+        frontend_url_path=PANEL_URL_PATH,
+        webcomponent_name="dahua-intercom-panel",
+        sidebar_title="Domofon",
+        sidebar_icon="mdi:doorbell-video",
+        module_url=f"{CARD_URL}?v={hass.data[f'{DOMAIN}_card_version']}",
+        require_admin=False,
+    )
 
 
 def _default_public_host(hass: HomeAssistant) -> str:
@@ -76,6 +95,7 @@ def _default_public_host(hass: HomeAssistant) -> str:
 
 async def async_setup_entry(hass: HomeAssistant, entry: IntercomConfigEntry) -> bool:
     await _register_card(hass)
+    await _register_panel(hass)
     host = entry.data[CONF_HOST]
     local_ip = _opt(entry, CONF_LOCAL_IP, "") or await network.async_get_source_ip(hass, target_ip=host)
     core = IntercomCore(
@@ -120,4 +140,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: IntercomConfigEntry) ->
     ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if ok:
         await entry.runtime_data.stop()
+        others = [e for e in hass.config_entries.async_loaded_entries(DOMAIN) if e.entry_id != entry.entry_id]
+        if not others and hass.data.pop(f"{DOMAIN}_panel", None):
+            async_remove_panel(hass, PANEL_URL_PATH)
     return ok

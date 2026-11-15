@@ -33,7 +33,8 @@ DEFAULT_WEBRTC_PORT = 8556
 DEFAULT_GO2RTC_API_PORT = 11985
 UPSTREAM_IDLE_S = 30
 DEFAULT_LOCK = "lock.domofon_elektrozaczep"
-DEFAULT_NOTIFY_URL = "/lovelace/parter"
+PANEL_URL_PATH = "domofon"
+DEFAULT_NOTIFY_URL = f"/{PANEL_URL_PATH}"  # the integration's own sidebar panel
 
 STATE_IDLE = "idle"
 STATE_RINGING = "ringing"
