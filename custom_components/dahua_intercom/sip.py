@@ -272,6 +272,7 @@ class Call:
     plan: MediaPlan | None = None
     last_response: bytes | None = None
     acked: asyncio.Event = field(default_factory=asyncio.Event)
+    route: list[str] = field(default_factory=list)  # Route set (Record-Route)
     caller: str = ""
 
 
@@ -403,11 +404,13 @@ class SipAgent(asyncio.DatagramProtocol):
         body: str = "",
         branch: str | None = None,
         from_uri: str | None = None,
+        route: list[str] | None = None,
     ) -> tuple[str, str]:
         branch = branch or "z9hG4bK" + _rand(12)
         lines = [
             f"{method} {uri} SIP/2.0",
             f"Via: SIP/2.0/UDP {self.local_ip}:{self.local_port};branch={branch};rport",
+            *(f"Route: {r}" for r in route or []),
             "Max-Forwards: 70",
             f"From: <{from_uri or self.user_uri}>;tag={from_tag}",
             f"To: <{to}>" + (f";tag={to_tag}" if to_tag else ""),
@@ -554,6 +557,10 @@ class SipAgent(asyncio.DatagramProtocol):
         if to_tag and not tag_of(to):
             to += f";tag={to_tag}"
         via_lines = "".join(f"Via: {v}\r\n" for v in self._via_with_received(req))
+        if code > 100 and req.method == "INVITE":
+            # RFC 3261 12.1.1: a UAS copies Record-Route into dialog-creating responses.
+            # The VTO's built-in SIP server proxies the call and drops our 200 OK without it.
+            via_lines += "".join(f"Record-Route: {r}\r\n" for r in req.get_all("record-route"))
         msg = (
             f"SIP/2.0 {code} {reason}\r\n{via_lines}"
             f"From: {req.get('from')}\r\nTo: {to}\r\nCall-ID: {req.call_id}\r\n"
@@ -636,6 +643,7 @@ class SipAgent(asyncio.DatagramProtocol):
             invite=req,
             state="ringing",
             plan=plan,
+            route=req.get_all("record-route"),
         )
         m = re.match(r"sips?:([^@;>]+)", call.remote_uri)
         call.caller = m.group(1) if m else call.remote_uri
@@ -806,6 +814,7 @@ class SipAgent(asyncio.DatagramProtocol):
             return self._request(
                 "BYE", target, to=to_uri, from_tag=call.local_tag, call_id=call.call_id,
                 cseq=call.local_cseq, to_tag=call.remote_tag, extra=auth, from_uri=from_uri,
+                route=call.route,
             )
 
         try:
