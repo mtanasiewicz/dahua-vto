@@ -71,7 +71,8 @@ class IntercomCore:
         self.main_stream = main_stream
         self.rtsp_url = f"rtsp://{rtsp_host}:{rtsp_port}/intercom"
         self.media = MediaRelay(rtp_port, rtp_port + 2, self._on_sip_media)
-        self.rtsp = RtspServer(rtsp_host, rtsp_port, self._on_viewers, self.media.push_mic)
+        self.rtsp = RtspServer(rtsp_host, rtsp_port, self._on_viewers)
+        self.media.mic_source = self.rtsp.pull_door_frame
         self.http = async_get_clientsession(hass)
         self.go2rtc = Go2rtc(
             storage_dir,

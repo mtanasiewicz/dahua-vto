@@ -14,6 +14,8 @@ import struct
 import time
 from typing import Callable
 
+from .audio_mix import Speaker, decode, encode_alaw, mix_into
+
 _LOGGER = logging.getLogger(__name__)
 
 TRACK_VIDEO, TRACK_AUDIO, TRACK_BACK = 0, 1, 2
@@ -76,6 +78,7 @@ class _Client:
         self.backchannel = False
         self.back_channels: set[int] = set()  # every channel offered for track 2
         self.frames: dict[int, int] = {}  # interleaved channel -> frames received
+        self.speaker = Speaker()  # this viewer's microphone
         self.peer = writer.get_extra_info("peername")
 
     def _on_frame(self, ch: int, data: bytes) -> None:
@@ -95,10 +98,7 @@ class _Client:
             return  # RTCP (PT byte 200-204)
         if ch not in self.back_channels and pt not in (0, 8):
             return
-        payload = _rtp_payload(data)
-        if pt == 0:
-            payload = payload.translate(_ULAW_TO_ALAW)
-        self.server.on_mic(payload)
+        self.speaker.feed(decode(_rtp_payload(data), pt))
 
     # ------------------------------------------------------------ I/O
 
@@ -205,27 +205,6 @@ def _track_from_url(url: str) -> int | None:
     return None
 
 
-def _ulaw_to_linear(u: int) -> int:
-    u = ~u & 0xFF
-    t = (((u & 0x0F) << 3) + 0x84) << ((u & 0x70) >> 4)
-    return (0x84 - t) if u & 0x80 else (t - 0x84)
-
-
-def _linear_to_alaw(pcm: int) -> int:
-    mask = 0xD5 if pcm >= 0 else 0x55
-    pcm = pcm if pcm >= 0 else -pcm - 1
-    pcm = min(pcm, 0x7FFF)
-    seg = 0
-    for seg, end in enumerate((0xFF, 0x1FF, 0x3FF, 0x7FF, 0xFFF, 0x1FFF, 0x3FFF, 0x7FFF)):
-        if pcm <= end:
-            break
-    aval = (pcm >> 4) & 0x0F if seg < 2 else (pcm >> (seg + 3)) & 0x0F
-    return ((seg << 4) | aval) ^ mask
-
-
-_ULAW_TO_ALAW = bytes(_linear_to_alaw(_ulaw_to_linear(i)) for i in range(256))
-
-
 def _rtp_payload(pkt: bytes) -> bytes:
     cc = pkt[0] & 0x0F
     off = 12 + cc * 4
@@ -240,11 +219,10 @@ def _rtp_payload(pkt: bytes) -> bytes:
 class RtspServer:
     """Serves rtsp://host:port/<anything> with the current call's media."""
 
-    def __init__(self, host: str, port: int, on_clients: Callable[[int], None], on_mic: Callable[[bytes], None]) -> None:
+    def __init__(self, host: str, port: int, on_clients: Callable[[int], None]) -> None:
         self.host = host
         self.port = port
         self._on_clients = on_clients
-        self.on_mic = on_mic
         self._server: asyncio.base_events.Server | None = None
         self._clients: set[_Client] = set()
         self._codecs = {TRACK_VIDEO: _Codec(96, "H264/90000"), TRACK_AUDIO: _Codec(8, "PCMA/8000")}
@@ -335,6 +313,9 @@ class RtspServer:
         track = TRACK_VIDEO if kind == "video" else TRACK_AUDIO
         keyframe = track == TRACK_VIDEO and self._sniff_params(pkt)
         out = self._tracks[track].rewrite(pkt)
+        if track == TRACK_AUDIO and self._codecs[TRACK_AUDIO].pt == 8:
+            self._push_audio_mixed(out)
+            return
         if track == TRACK_VIDEO:
             if keyframe:
                 self.gop = []
@@ -345,6 +326,37 @@ class RtspServer:
         for c in self._clients:
             if c.playing:
                 c.send_rtp(track, out)
+
+    def _push_audio_mixed(self, out: bytes) -> None:
+        """Door audio to each viewer, with the other viewers' microphones mixed in."""
+        players = [c for c in self._clients if c.playing]
+        payload = _rtp_payload(out)
+        n = len(payload)
+        chunks = {}
+        for c in self._clients:
+            chunk = Speaker.take(c.speaker.to_peers, n)
+            if chunk is not None:
+                chunks[c] = chunk
+        if not chunks or n == 0:
+            for c in players:
+                c.send_rtp(TRACK_AUDIO, out)
+            return
+        header = out[: len(out) - n]
+        door = list(decode(payload, 8))
+        for c in players:
+            parts = [chunk for x, chunk in chunks.items() if x is not c]
+            c.send_rtp(TRACK_AUDIO, header + encode_alaw(mix_into(door, parts)) if parts else out)
+
+    def pull_door_frame(self, n: int = 160) -> bytes | None:
+        """n samples of all viewers' microphones mixed, A-law, for the door station; None if nobody talks."""
+        parts = []
+        for c in self._clients:
+            chunk = Speaker.take(c.speaker.to_door, n)
+            if chunk is not None:
+                parts.append(chunk)
+        if not parts:
+            return None
+        return encode_alaw(mix_into([0] * n, parts))
 
     def _sniff_params(self, pkt: bytes) -> bool:
         """Remember SPS/PPS; True when the packet starts a keyframe (SPS or IDR start)."""

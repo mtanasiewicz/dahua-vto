@@ -13,8 +13,11 @@ from homeassistant.components.camera import (
     WebRTCClientConfiguration,
     WebRTCError,
     WebRTCSendMessage,
+    async_get_image,
 )
+from homeassistant.components.camera.img_util import scale_jpeg_camera_image
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import IntercomConfigEntry
@@ -44,6 +47,17 @@ class IntercomCamera(IntercomEntity, Camera):
         return self.core.rtsp_url
 
     async def async_camera_image(self, width: int | None = None, height: int | None = None) -> bytes | None:
+        """Still picture for the idle card: from the source camera (cheap, no stream kept open)."""
+        try:
+            image = await async_get_image(self.hass, self.core.source_camera, timeout=8)
+            if width and image.content_type == "image/jpeg":
+                # the source camera ignores width: scale here so the idle card uses little data
+                return await self.hass.async_add_executor_job(
+                    scale_jpeg_camera_image, image, width, height or width * 9 // 16
+                )
+            return image.content
+        except HomeAssistantError as err:
+            _LOGGER.debug("Snapshot from %s failed (%s), using the stream", self.core.source_camera, err)
         return await self.core.async_snapshot()
 
     @callback

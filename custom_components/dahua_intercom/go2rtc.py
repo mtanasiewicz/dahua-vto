@@ -12,7 +12,8 @@ import json
 import logging
 import os
 import shutil
-from typing import Awaitable, Callable
+import uuid
+from typing import Callable
 
 import aiohttp
 
@@ -43,7 +44,7 @@ class Go2rtc:
         self._api_port = api_port
         self._webrtc_port = webrtc_port
         self._public_host = public_host
-        self._rtsp_url = rtsp_url
+        self.rtsp_url = rtsp_url
         self._config_path = os.path.join(config_dir, "go2rtc.yaml")
         self._session = session
         self._proc: asyncio.subprocess.Process | None = None
@@ -64,10 +65,10 @@ class Go2rtc:
                 "candidates": candidates,
                 "ice_servers": [{"urls": ["stun:stun.l.google.com:19302", "stun:stun.cloudflare.com:3478"]}],
             },
-            "streams": {STREAM: [self._rtsp_url]},
+            "streams": {STREAM: [self.rtsp_url]},
             "log": {"level": "info"},
         }
-        return json.dumps(cfg, indent=2)  # JSON is valid YAML
+        return _to_yaml(cfg)
 
     async def start(self) -> None:
         if not self._binary:
@@ -129,14 +130,50 @@ class Go2rtc:
         return None
 
 
+def _to_yaml(value, indent: int = 0) -> str:
+    """Block-style YAML (go2rtc edits its config file when streams are added, so no flow style)."""
+    pad = "  " * indent
+    lines: list[str] = []
+    if isinstance(value, dict):
+        for k, v in value.items():
+            if isinstance(v, (dict, list)) and v:
+                lines.append(f"{pad}{k}:")
+                lines.append(_to_yaml(v, indent + 1))
+            else:
+                lines.append(f"{pad}{k}: {_scalar(v)}")
+    elif isinstance(value, list):
+        for item in value:
+            if isinstance(item, dict):
+                first, *rest = _to_yaml(item, indent + 1).splitlines()
+                lines.append(f"{pad}- {first.strip()}")
+                lines.extend(rest)
+            else:
+                lines.append(f"{pad}- {_scalar(item)}")
+    return "\n".join(lines) + ("\n" if indent == 0 else "")
+
+
+def _scalar(v) -> str:
+    if isinstance(v, list):
+        return "[]"
+    if isinstance(v, dict):
+        return "{}"
+    return json.dumps(v)  # a JSON string/number is a valid YAML scalar
+
+
 class WebRtcSession:
-    """One browser session, signalled through go2rtc's WebSocket API (trickle ICE)."""
+    """One browser session, signalled through go2rtc's WebSocket API (trickle ICE).
+
+    Each session gets its own go2rtc stream, hence its own RTSP connection to our
+    server: that is what lets the mixer give every phone the door audio plus the
+    *other* phones' voices, without its own echo.
+    """
 
     def __init__(self, go2rtc: Go2rtc, session: aiohttp.ClientSession) -> None:
         self._go2rtc = go2rtc
         self._session = session
         self._ws: aiohttp.ClientWebSocketResponse | None = None
         self._task: asyncio.Task | None = None
+        self._stream = f"s_{uuid.uuid4().hex[:12]}"
 
     async def start(
         self,
@@ -145,8 +182,15 @@ class WebRtcSession:
         on_candidate: Callable[[str], None],
         on_error: Callable[[str], None],
     ) -> None:
+        async with self._session.put(
+            f"{self._go2rtc.api}/api/streams",
+            params={"name": self._stream, "src": self._go2rtc.rtsp_url},
+            timeout=aiohttp.ClientTimeout(total=5),
+        ) as r:
+            if r.status >= 400:
+                raise RuntimeError(f"go2rtc stream create: HTTP {r.status}")
         self._ws = await self._session.ws_connect(
-            f"{self._go2rtc.api}/api/ws", params={"src": STREAM}, timeout=aiohttp.ClientWSTimeout(ws_close=5),
+            f"{self._go2rtc.api}/api/ws", params={"src": self._stream}, timeout=aiohttp.ClientWSTimeout(ws_close=5),
             heartbeat=20,
         )
         await self._ws.send_json({"type": "webrtc/offer", "value": offer})
@@ -180,6 +224,10 @@ class WebRtcSession:
             self._task.cancel()
         if self._ws and not self._ws.closed:
             await self._ws.close()
-
-
-SessionFactory = Callable[[], Awaitable[WebRtcSession]]
+        try:
+            async with self._session.delete(
+                f"{self._go2rtc.api}/api/streams", params={"src": self._stream}, timeout=aiohttp.ClientTimeout(total=5)
+            ):
+                pass
+        except (aiohttp.ClientError, asyncio.TimeoutError):
+            pass

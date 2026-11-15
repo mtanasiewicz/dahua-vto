@@ -30,7 +30,14 @@ class _RtpSocket(asyncio.DatagramProtocol):
 class MediaRelay:
     """Owns the RTP sockets; forwards VTO media to a sink and mic audio to the VTO."""
 
-    def __init__(self, audio_port: int, video_port: int, sink: Callable[[str, bytes], None]) -> None:
+    def __init__(
+        self,
+        audio_port: int,
+        video_port: int,
+        sink: Callable[[str, bytes], None],
+        mic_source: Callable[[int], bytes | None] | None = None,
+    ) -> None:
+        self.mic_source = mic_source  # returns n mixed microphone samples (A-law) or None
         self.audio_port = audio_port
         self.video_port = video_port
         self._sink = sink
@@ -126,9 +133,9 @@ class MediaRelay:
                 plan = self._plan
                 if plan is None:
                     return
-                if len(self._mic_buf) >= 160:
-                    frame = bytes(self._mic_buf[:160])
-                    del self._mic_buf[:160]
+                frame = self.mic_source(160) if self.mic_source else None
+                if frame is not None:
+                    self.stats["mic_rx"] += 1
                 else:
                     frame = SILENCE_PCMA
                 hdr = struct.pack("!BBHII", 0x80, plan.audio_pt, self._seq & 0xFFFF, self._ts & 0xFFFFFFFF, self._ssrc)
