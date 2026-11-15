@@ -78,10 +78,13 @@ def _ring_payload(phone: Phone, level: str, *, url: str, image: str, sound: str 
                 "priority": "high",  # FCM high priority: delivered at once, also in Doze
                 "ttl": 0,
                 "importance": "high",
+                # Android fixes a channel's importance when the channel is first created and
+                # the app can never raise it later; a phone that once made "Domofon" quiet
+                # (only a dot on the icon, no pop-up) gets a fresh, high-importance channel.
                 "channel": {
                     "critical": "alarm_stream",
-                    "important": "Domofon",
-                    "normal": "Domofon (zwykłe)",
+                    "important": "Dzwonek domofonu",
+                    "normal": "Dzwonek domofonu (zwykły)",
                 }[level],
                 "visibility": "public",
             }
