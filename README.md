@@ -24,20 +24,16 @@ media: video,audio,microphone
 Opening the card answers a ringing call, or starts a live view call when idle.
 Closing it hangs up after a few seconds.
 
-## Sidebar panel and ring notifications
+## Ring notifications
 
-The integration adds a **Domofon** panel to the sidebar (`/domofon`): the intercom card, as large
-as the screen allows. It works with any dashboard layout, so ring notifications open this panel by
-default (option *Notification URL*).
-
-The built-in panel cannot be edited. To add your own buttons, create a regular dashboard
-(e.g. `/dashboard-domofon`) with the `custom:dahua-intercom-card`, set *Notification URL* to it
-(e.g. `/dashboard-domofon/domofon`) and turn off the option *Show the built-in "Domofon" panel*.
+Option *Page opened from the ring notification*: the path of the dashboard view with the
+intercom card (e.g. `/dashboard-domofon/domofon`). There is no default; when empty, tapping the
+notification opens the app's home page.
 
 Ring notifications are sent by the integration to every phone registered with the Companion app.
 Per phone (entities of the intercom device):
 
 - **Ring notifications** (all phones): off / normal / important (breaks through Focus) / critical.
 - **Ring sound** (iPhone): name of a sound file in the Companion app (`default` = system sound).
-- **Open intercom on ring** (Android): the app opens the panel by itself when it rings
+- **Open intercom on ring** (Android): the app opens that page by itself when it rings
   (needs the "Display over other apps" permission, asked the first time).

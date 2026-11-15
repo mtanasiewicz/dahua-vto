@@ -460,52 +460,8 @@ class DahuaIntercomCard extends HTMLElement {
   }
 }
 
-/*
- * Sidebar panel "Domofon" (registered by the integration): the card, as large as the
- * screen allows. Ring notifications open this panel, so it works on any dashboard layout.
- */
-class DahuaIntercomPanel extends HTMLElement {
-  set hass(hass) {
-    this._hass = hass;
-    if (!this._card) this._build();
-    this._card.hass = hass;
-    this._menu.hass = hass;
-  }
-
-  set narrow(narrow) {
-    this._narrow = narrow;
-    if (this._menu) this._menu.narrow = narrow;
-  }
-
-  set panel(panel) {
-    this._panel = panel;
-  }
-
-  _build() {
-    const root = this.attachShadow({ mode: "open" });
-    root.innerHTML = `
-      <style>
-        :host { display:block; height:100%; background: var(--primary-background-color); }
-        .toolbar { display:flex; align-items:center; height: var(--header-height, 56px); padding: 0 12px;
-                   padding-top: env(safe-area-inset-top); gap: 8px;
-                   background: var(--app-header-background-color, var(--primary-color));
-                   color: var(--app-header-text-color, #fff); font-size: 20px; }
-        .content { display:flex; justify-content:center; padding: 16px; box-sizing: border-box; }
-        /* 16:9 video + header + buttons (~190px) must fit the visible height */
-        .wrap { width: min(100%, calc((100vh - var(--header-height, 56px) - 230px) * 16 / 9)); min-width: min(100%, 320px); }
-      </style>
-      <div class="toolbar"><ha-menu-button></ha-menu-button><span>Domofon</span></div>
-      <div class="content"><div class="wrap"></div></div>`;
-    this._menu = root.querySelector("ha-menu-button");
-    this._menu.narrow = this._narrow;
-    this._card = document.createElement("dahua-intercom-card");
-    this._card.setConfig((this._panel && this._panel.config) || {});
-    root.querySelector(".wrap").appendChild(this._card);
-  }
-}
 
 if (!customElements.get("dahua-intercom-card")) customElements.define("dahua-intercom-card", DahuaIntercomCard);
-if (!customElements.get("dahua-intercom-panel")) customElements.define("dahua-intercom-panel", DahuaIntercomPanel);
 window.customCards = window.customCards || [];
 window.customCards.push({
   type: "dahua-intercom-card",

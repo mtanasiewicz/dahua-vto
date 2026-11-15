@@ -49,8 +49,10 @@
           "public_host": "Public host name for WebRTC (empty = from the external URL)",
           "webrtc_port": "WebRTC port (forward TCP+UDP on the router for mobile data)",
           "lock_entity": "Gate lock (Open button)",
-          "notify_url": "Page opened from the ring notification",
-          "show_panel": "Show the built-in \"Domofon\" panel in the sidebar (turn off if you use your own dashboard)"
+          "notify_url": "Page opened from the ring notification"
+        },
+        "data_description": {
+          "notify_url": "Path of the dashboard view with the intercom card, e.g. /dashboard-domofon/domofon. Empty: the app opens on its home page."
         }
       }
     }

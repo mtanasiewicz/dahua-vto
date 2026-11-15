@@ -49,8 +49,10 @@
           "public_host": "Publiczna nazwa hosta dla WebRTC (puste = z adresu zewnętrznego)",
           "webrtc_port": "Port WebRTC (przekieruj TCP+UDP na routerze dla 5G)",
           "lock_entity": "Elektrozaczep furtki (przycisk Otwórz)",
-          "notify_url": "Strona otwierana z powiadomienia o dzwonku",
-          "show_panel": "Wbudowana zakładka „Domofon” w menu (wyłącz, jeśli masz własny dashboard)"
+          "notify_url": "Strona otwierana z powiadomienia o dzwonku"
+        },
+        "data_description": {
+          "notify_url": "Ścieżka widoku dashboardu z kartą domofonu, np. /dashboard-domofon/domofon. Puste: aplikacja otwiera stronę główną."
         }
       }
     }

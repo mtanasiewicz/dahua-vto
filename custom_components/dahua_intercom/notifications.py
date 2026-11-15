@@ -53,13 +53,14 @@ def discover_phones(hass: HomeAssistant) -> list[Phone]:
 def _ring_payload(phone: Phone, level: str, *, url: str, image: str, sound: str = DEFAULT_SOUND) -> dict:
     data: dict = {
         "tag": TAG,
-        "url": url,
         "image": image,
         "actions": [
             {"action": ACTION_OPEN, "title": "Otwórz"},
             {"action": ACTION_IGNORE, "title": "Ignoruj"},
         ],
     }
+    if url:
+        data["url"] = url  # tapping the notification opens this page (otherwise the app's home)
     if phone.os == "ios":
         if level == "critical":
             data["push"] = {
@@ -77,7 +78,6 @@ def _ring_payload(phone: Phone, level: str, *, url: str, image: str, sound: str 
                 "priority": "high",  # FCM high priority: delivered at once, also in Doze
                 "ttl": 0,
                 "importance": "high",
-                "clickAction": url,
                 "channel": {
                     "critical": "alarm_stream",
                     "important": "Domofon",
@@ -86,12 +86,17 @@ def _ring_payload(phone: Phone, level: str, *, url: str, image: str, sound: str 
                 "visibility": "public",
             }
         )
+        if url:
+            data["clickAction"] = url
     return {"title": "Domofon", "message": "Ktoś dzwoni do furtki", "data": data}
 
 
 def _open_app_payload(url: str) -> dict:
     """Android: bring the Companion app up on the intercom view (needs "Display over other apps")."""
-    return {"message": "command_webview", "data": {"command": url, "priority": "high", "ttl": 0}}
+    data: dict = {"priority": "high", "ttl": 0}
+    if url:
+        data["command"] = url  # without it the app opens on its home page
+    return {"message": "command_webview", "data": data}
 
 
 def _clear_payload(phone: Phone) -> dict:
