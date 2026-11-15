@@ -46,7 +46,9 @@ def discover_phones(hass: HomeAssistant) -> list[Phone]:
     for entry in hass.config_entries.async_entries("mobile_app"):
         name = entry.data.get("device_name") or entry.title
         os_name = (entry.data.get("os_name") or "").lower()
-        phones.append(Phone(f"mobile_app_{slugify(name)}", name, "ios" if "ios" in os_name else "android"))
+        # iOS, iPadOS and the macOS app all use Apple push (same payload); the rest is Android
+        apple = any(x in os_name for x in ("ios", "macos", "mac os"))
+        phones.append(Phone(f"mobile_app_{slugify(name)}", name, "ios" if apple else "android"))
     return phones
 
 

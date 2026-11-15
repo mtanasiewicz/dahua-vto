@@ -15,10 +15,12 @@
  *   Zakończ  - end the call (for everybody)
  *   Otwórz   - open the gate
  * The tap that answers/joins also unmutes and enables the microphone (iOS autoplay rules).
+ * Without WebRTC (the macOS Companion app's web view has no RTCPeerConnection) live
+ * view falls back to Home Assistant's MJPEG stream: moving picture, no sound.
  * While talking, the badge shows a microphone level bar; without microphone access the
  * status says so (otherwise you hear the door but nobody hears you, with no hint why).
  */
-const VERSION = "0.8.1";
+const VERSION = "0.8.2";
 const LIVE_PARAM = "intercom";
 const LIVE_ON_DEMAND_MS = 60000;
 
@@ -96,6 +98,7 @@ class DahuaIntercomCard extends HTMLElement {
     window.removeEventListener("popstate", this._onLocation);
     clearTimeout(this._liveTimer);
     this._stop();
+    this._stopMjpeg();
     this._stopSnapshots();
   }
 
@@ -205,22 +208,23 @@ class DahuaIntercomCard extends HTMLElement {
     const lock = this._hass && this._hass.states[this._config.lock];
     this._els.open.disabled = !lock || lock.state === "unavailable";
 
-    const live = !!this._pc && !!this._els.video.srcObject;
-    this._els.video.hidden = !live;
-    this._els.img.hidden = live;
+    const rtcLive = !!this._pc && !!this._els.video.srcObject;
+    const live = rtcLive || !!this._mjpeg;
+    this._els.video.hidden = !rtcLive;
+    this._els.img.hidden = rtcLive;
     let overlay = "";
     if (this._pc && this._state === "connecting" && !live) overlay = LABELS.connecting;
     else if (this._pc && this._state === "reconnecting") overlay = LABELS.reconnecting;
     this._els.overlay.textContent = overlay;
     this._els.overlay.hidden = !overlay;
     const micOn = this._micTrack && this._micTrack.enabled;
-    this._els.badgeText.textContent = micOn ? "🎙 mikrofon" : live ? "na żywo" : "";
+    this._els.badgeText.textContent = micOn ? "🎙 mikrofon" : rtcLive ? "na żywo" : this._mjpeg ? "na żywo, bez dźwięku" : "";
     this._els.badge.hidden = !this._els.badgeText.textContent;
     this._els.level.hidden = !micOn;
     if (micOn) this._startLevel(); else this._stopLevel();
     // play over the still picture; stop while live only because of it (or the notification)
     const onDemand = this._onDemandOnly();
-    this._els.play.hidden = !(onDemand || (!this._pc && !ringing && !inCall));
+    this._els.play.hidden = !(onDemand || (!this._liveOn() && !ringing && !inCall));
     this._els.playIcon.setAttribute("icon", onDemand ? "mdi:stop" : "mdi:play");
     this._els.play.title = onDemand ? "Wróć do zdjęć" : "Podgląd na żywo";
   }
@@ -286,7 +290,31 @@ class DahuaIntercomCard extends HTMLElement {
 
   /** Live only because of the play button / notification, not because of a ring or call. */
   _onDemandOnly() {
-    return !!this._pc && Date.now() < (this._liveUntil || 0) && !this._liveForCall();
+    return this._liveOn() && Date.now() < (this._liveUntil || 0) && !this._liveForCall();
+  }
+
+  _liveOn() {
+    return !!this._pc || !!this._mjpeg;
+  }
+
+  _hasWebRtc() {
+    return typeof window.RTCPeerConnection === "function";
+  }
+
+  /** Live picture without WebRTC: Home Assistant's MJPEG stream into the <img>. */
+  _startMjpeg() {
+    if (this._mjpeg) return;
+    const st = this._hass.states[this._config.camera];
+    const token = st && st.attributes.access_token;
+    if (!token) return;
+    this._mjpeg = true;
+    this._els.img.src = `/api/camera_proxy_stream/${this._config.camera}?token=${token}`;
+  }
+
+  _stopMjpeg() {
+    if (!this._mjpeg) return;
+    this._mjpeg = false;
+    this._els.img.removeAttribute("src"); // closes the stream
   }
 
   _liveOnDemand() {
@@ -320,8 +348,10 @@ class DahuaIntercomCard extends HTMLElement {
     if (!this._hass || !this._els) return;
     if (this._liveWanted()) {
       this._stopSnapshots();
-      if (!this._pc) this._start();
+      if (!this._hasWebRtc()) this._startMjpeg();
+      else if (!this._pc) this._start().catch((e) => this._reportError("start", e));
     } else {
+      this._stopMjpeg();
       if (this._pc) this._stop();
       if (this._visible()) this._startSnapshots();
       else this._stopSnapshots();
@@ -348,7 +378,7 @@ class DahuaIntercomCard extends HTMLElement {
 
   _loadSnapshot() {
     this._snapTimer = null;
-    if (!this._hass || this._pc || !this._visible()) return;
+    if (!this._hass || this._liveOn() || !this._visible()) return;
     const st = this._hass.states[this._config.camera];
     const token = st && st.attributes.access_token;
     if (!token) { this._nextSnapshot(1000); return; }
@@ -357,9 +387,9 @@ class DahuaIntercomCard extends HTMLElement {
     this._snapLoading = true;
     const done = () => {
       this._snapLoading = false;
-      if (!this._pc && this._visible()) this._nextSnapshot(this._config.snapshot_interval * 1000);
+      if (!this._liveOn() && this._visible()) this._nextSnapshot(this._config.snapshot_interval * 1000);
     };
-    loader.onload = () => { if (!this._pc) this._els.img.src = loader.src; done(); };
+    loader.onload = () => { if (!this._liveOn()) this._els.img.src = loader.src; done(); };
     loader.onerror = done;
     loader.src = url;
   }
@@ -441,10 +471,20 @@ class DahuaIntercomCard extends HTMLElement {
     return this._pc && ["connected", "completed"].includes(this._pc.iceConnectionState);
   }
 
+  /** Card errors also go to the Home Assistant log, so they can be read from any device. */
+  _reportError(where, e) {
+    console.warn("intercom:", where, e);
+    if (this._pc) { try { this._pc.close(); } catch (err) { /* closed */ } this._pc = null; }
+    this._error = true;
+    this._render();
+    const msg = `dahua-intercom-card ${VERSION} ${where}: ${(e && (e.name + ": " + e.message)) || e} (${navigator.userAgent})`;
+    this._hass.callWS({ type: "system_log/write", message: msg, level: "warning", logger: "dahua_intercom.card" }).catch(() => {});
+  }
+
   _restart(reason) {
     console.info("intercom: restarting stream", reason);
     this._stop(true);
-    this._start(true);
+    this._start(true).catch((e) => this._reportError("restart", e));
   }
 
   async _start(reconnect = false) {
