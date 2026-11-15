@@ -17,15 +17,31 @@ from typing import Callable
 _LOGGER = logging.getLogger(__name__)
 
 TRACK_VIDEO, TRACK_AUDIO, TRACK_BACK = 0, 1, 2
-_PT = {TRACK_VIDEO: 96, TRACK_AUDIO: 8}
-_CLOCK = {TRACK_VIDEO: 90000, TRACK_AUDIO: 8000}
+GOP_MAX_PACKETS = 1500  # ~2 s of 720p H.264
+
+
+class _Codec:
+    """What we announce for one track (mirrors the upstream VTO stream)."""
+
+    def __init__(self, pt: int, rtpmap: str, fmtp: str = "") -> None:
+        self.pt = pt
+        self.rtpmap = rtpmap
+        self.fmtp = fmtp
+
+    @property
+    def clock(self) -> int:
+        try:
+            return int(self.rtpmap.split("/")[1])
+        except (IndexError, ValueError):
+            return 90000
 
 
 class _TrackState:
     """Rewrites RTP headers so viewers see one continuous stream across calls."""
 
-    def __init__(self, track: int) -> None:
+    def __init__(self, track: int, codec: _Codec) -> None:
         self.track = track
+        self.codec = codec
         self.ssrc = random.randint(1, 0x7FFFFFFF)
         self.seq = random.randint(0, 0xFFFF)
         self.src_ssrc: int | None = None
@@ -37,12 +53,12 @@ class _TrackState:
         b = bytearray(pkt)
         in_ts, in_ssrc = struct.unpack_from("!II", b, 4)
         if in_ssrc != self.src_ssrc:
-            gap = int((time.monotonic() - self.last_wall) * _CLOCK[self.track])
+            gap = int((time.monotonic() - self.last_wall) * self.codec.clock)
             self.ts_offset = (self.last_out_ts + max(gap, 1) - in_ts) & 0xFFFFFFFF
             self.src_ssrc = in_ssrc
         out_ts = (in_ts + self.ts_offset) & 0xFFFFFFFF
         self.seq = (self.seq + 1) & 0xFFFF
-        b[1] = (b[1] & 0x80) | _PT[self.track]
+        b[1] = (b[1] & 0x80) | self.codec.pt
         struct.pack_into("!HII", b, 2, self.seq, out_ts, self.ssrc)
         self.last_out_ts = out_ts
         self.last_wall = time.monotonic()
@@ -158,6 +174,9 @@ class _Client:
             self._reply(cseq, f"Session: {self.session}\r\nRange: npt=0.000-\r\n")
             if not self.playing:
                 self.playing = True
+                # start with the cached GOP so the picture appears at once
+                for pkt in self.server.gop:
+                    self.send_rtp(TRACK_VIDEO, pkt)
                 self.server.client_changed()
         elif method == "PAUSE":
             self._reply(cseq, f"Session: {self.session}\r\n")
@@ -228,9 +247,11 @@ class RtspServer:
         self.on_mic = on_mic
         self._server: asyncio.base_events.Server | None = None
         self._clients: set[_Client] = set()
-        self._tracks = {TRACK_VIDEO: _TrackState(TRACK_VIDEO), TRACK_AUDIO: _TrackState(TRACK_AUDIO)}
+        self._codecs = {TRACK_VIDEO: _Codec(96, "H264/90000"), TRACK_AUDIO: _Codec(8, "PCMA/8000")}
+        self._tracks = {t: _TrackState(t, c) for t, c in self._codecs.items()}
         self._sps: bytes | None = None
         self._pps: bytes | None = None
+        self.gop: list[bytes] = []
 
     async def start(self) -> None:
         self._server = await asyncio.start_server(self._accept, self.host, self.port)
@@ -259,9 +280,24 @@ class RtspServer:
     def client_changed(self) -> None:
         self._on_clients(self.viewers)
 
+    def set_upstream(self, medias) -> None:
+        """Mirror the codecs of the upstream (VTO RTSP) stream."""
+        for m in medias:
+            track = TRACK_VIDEO if m.kind == "video" else TRACK_AUDIO
+            codec = self._codecs[track]
+            changed = (codec.pt, codec.rtpmap) != (m.pt, m.rtpmap)
+            codec.pt, codec.rtpmap, codec.fmtp = m.pt, m.rtpmap, m.fmtp
+            if changed:
+                _LOGGER.info("RTSP %s track now %s (pt %d)", m.kind, m.rtpmap, m.pt)
+                self.gop.clear()
+
+    def reset_cache(self) -> None:
+        self.gop.clear()
+
     def sdp(self, backchannel: bool) -> str:
-        fmtp = "packetization-mode=1"
-        if self._sps and self._pps:
+        v, a = self._codecs[TRACK_VIDEO], self._codecs[TRACK_AUDIO]
+        fmtp = v.fmtp or "packetization-mode=1"
+        if v.rtpmap.upper().startswith("H264") and self._sps and self._pps and "sprop-parameter-sets" not in fmtp:
             pli = self._sps[1:4].hex()
             fmtp += f";profile-level-id={pli};sprop-parameter-sets={base64.b64encode(self._sps).decode()},{base64.b64encode(self._pps).decode()}"
         lines = [
@@ -271,15 +307,16 @@ class RtspServer:
             "t=0 0",
             "a=control:*",
             "a=range:npt=now-",
-            "m=video 0 RTP/AVP 96",
+            f"m=video 0 RTP/AVP {v.pt}",
             "c=IN IP4 0.0.0.0",
-            "a=rtpmap:96 H264/90000",
-            f"a=fmtp:96 {fmtp}",
+            f"a=rtpmap:{v.pt} {v.rtpmap}",
+            f"a=fmtp:{v.pt} {fmtp}",
             "a=recvonly",
             "a=control:trackID=0",
-            "m=audio 0 RTP/AVP 8",
+            f"m=audio 0 RTP/AVP {a.pt}",
             "c=IN IP4 0.0.0.0",
-            "a=rtpmap:8 PCMA/8000",
+            f"a=rtpmap:{a.pt} {a.rtpmap}",
+            *([f"a=fmtp:{a.pt} {a.fmtp}"] if a.fmtp else []),
             "a=recvonly",
             "a=control:trackID=1",
         ]
@@ -296,32 +333,52 @@ class RtspServer:
     def push(self, kind: str, pkt: bytes) -> None:
         """RTP packet from the VTO ("audio" or "video")."""
         track = TRACK_VIDEO if kind == "video" else TRACK_AUDIO
-        if track == TRACK_VIDEO:
-            self._sniff_params(pkt)
-        if not any(c.playing for c in self._clients):
-            return
+        keyframe = track == TRACK_VIDEO and self._sniff_params(pkt)
         out = self._tracks[track].rewrite(pkt)
+        if track == TRACK_VIDEO:
+            if keyframe:
+                self.gop = []
+            if self.gop or keyframe:
+                self.gop.append(out)
+                if len(self.gop) > GOP_MAX_PACKETS:
+                    self.gop = []  # no keyframe for too long: drop rather than grow
         for c in self._clients:
             if c.playing:
                 c.send_rtp(track, out)
 
-    def _sniff_params(self, pkt: bytes) -> None:
+    def _sniff_params(self, pkt: bytes) -> bool:
+        """Remember SPS/PPS; True when the packet starts a keyframe (SPS or IDR start)."""
         payload = _rtp_payload(pkt)
         if not payload:
-            return
+            return False
         nal_type = payload[0] & 0x1F
         if nal_type == 7:
             self._sps = payload
-        elif nal_type == 8:
+            return True
+        if nal_type == 8:
             self._pps = payload
         elif nal_type == 24:  # STAP-A
-            i = 1
+            i, start = 1, False
             while i + 2 <= len(payload):
                 size = struct.unpack_from("!H", payload, i)[0]
                 nal = payload[i + 2 : i + 2 + size]
                 if nal:
                     if nal[0] & 0x1F == 7:
                         self._sps = nal
+                        start = True
                     elif nal[0] & 0x1F == 8:
                         self._pps = nal
                 i += 2 + size
+            return start
+        elif nal_type == 28 and len(payload) > 1:  # FU-A
+            return bool(payload[1] & 0x80) and payload[1] & 0x1F == 5 and not self.gop_has_sps()
+        elif nal_type == 5:
+            return not self.gop_has_sps()
+        return False
+
+    def gop_has_sps(self) -> bool:
+        """True when the current GOP already started at an SPS (so its IDR belongs to it)."""
+        if not self.gop:
+            return False
+        first = _rtp_payload(self.gop[0])
+        return bool(first) and (first[0] & 0x1F in (7, 24))

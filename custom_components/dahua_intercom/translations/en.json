@@ -38,14 +38,16 @@
       "init": {
         "title": "Options",
         "data": {
-          "answer_on_view": "Answer a ringing call when the live view opens",
-          "monitor_on_view": "Call the door station when the live view opens",
           "monitor_target": "Door station number for live view",
           "local_sip_port": "Local SIP port",
           "rtp_port": "Local RTP port (audio; video uses +2)",
           "rtsp_host": "RTSP server bind address",
           "rtsp_port": "RTSP server port",
-          "local_ip": "Home Assistant IP sent to the door station (empty = automatic)"
+          "local_ip": "Home Assistant IP sent to the door station (empty = automatic)",
+          "source_camera": "Camera with the door station RTSP stream (picture and door audio)",
+          "main_stream": "Use the main stream (higher resolution, more data)",
+          "public_host": "Public host name for WebRTC (empty = from the external URL)",
+          "webrtc_port": "WebRTC port (forward TCP+UDP on the router for mobile data)"
         }
       }
     }
@@ -92,6 +94,11 @@
           "talking": "Talking",
           "live_view": "Live view"
         }
+      }
+    },
+    "camera": {
+      "intercom": {
+        "name": "Intercom"
       }
     }
   }

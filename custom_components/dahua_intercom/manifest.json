@@ -3,11 +3,11 @@
   "name": "Dahua Intercom (SIP)",
   "codeowners": ["@mtanasiewicz"],
   "config_flow": true,
-  "dependencies": ["network"],
+  "dependencies": ["camera", "frontend", "http", "network"],
   "documentation": "https://github.com/mtanasiewicz/dahua-vto",
   "integration_type": "device",
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/mtanasiewicz/dahua-vto/issues",
   "requirements": [],
-  "version": "0.1.0"
+  "version": "0.2.0"
 }

@@ -38,14 +38,16 @@
       "init": {
         "title": "Opcje",
         "data": {
-          "answer_on_view": "Odbierz dzwoniące połączenie po otwarciu podglądu",
-          "monitor_on_view": "Połącz z domofonem po otwarciu podglądu",
           "monitor_target": "Numer domofonu do podglądu",
           "local_sip_port": "Lokalny port SIP",
           "rtp_port": "Lokalny port RTP (audio; wideo +2)",
           "rtsp_host": "Adres serwera RTSP",
           "rtsp_port": "Port serwera RTSP",
-          "local_ip": "IP Home Assistant podawane domofonowi (puste = automatycznie)"
+          "local_ip": "IP Home Assistant podawane domofonowi (puste = automatycznie)",
+          "source_camera": "Kamera ze strumieniem RTSP domofonu (obraz i dźwięk z furtki)",
+          "main_stream": "Użyj strumienia głównego (wyższa rozdzielczość, więcej danych)",
+          "public_host": "Publiczna nazwa hosta dla WebRTC (puste = z adresu zewnętrznego)",
+          "webrtc_port": "Port WebRTC (przekieruj TCP+UDP na routerze dla 5G)"
         }
       }
     }
@@ -92,6 +94,11 @@
           "talking": "Rozmowa",
           "live_view": "Podgląd"
         }
+      }
+    },
+    "camera": {
+      "intercom": {
+        "name": "Domofon"
       }
     }
   }

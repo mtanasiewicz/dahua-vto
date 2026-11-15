@@ -12,12 +12,18 @@ from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import callback
 from homeassistant.helpers.selector import TextSelector, TextSelectorConfig, TextSelectorType
 
+from homeassistant.helpers.selector import EntitySelector, EntitySelectorConfig
+
 from .const import (
-    CONF_ANSWER_ON_VIEW,
     CONF_LOCAL_IP,
     CONF_LOCAL_SIP_PORT,
-    CONF_MONITOR_ON_VIEW,
+    CONF_MAIN_STREAM,
     CONF_MONITOR_TARGET,
+    CONF_PUBLIC_HOST,
+    CONF_SOURCE_CAMERA,
+    CONF_WEBRTC_PORT,
+    DEFAULT_SOURCE_CAMERA,
+    DEFAULT_WEBRTC_PORT,
     CONF_REALM,
     CONF_RTP_PORT,
     CONF_RTSP_HOST,
@@ -127,8 +133,12 @@ class DahuaIntercomOptionsFlow(OptionsFlow):
         o = self.config_entry.options
         schema = vol.Schema(
             {
-                vol.Required(CONF_ANSWER_ON_VIEW, default=o.get(CONF_ANSWER_ON_VIEW, True)): bool,
-                vol.Required(CONF_MONITOR_ON_VIEW, default=o.get(CONF_MONITOR_ON_VIEW, True)): bool,
+                vol.Required(CONF_SOURCE_CAMERA, default=o.get(CONF_SOURCE_CAMERA, DEFAULT_SOURCE_CAMERA)): EntitySelector(
+                    EntitySelectorConfig(domain="camera")
+                ),
+                vol.Required(CONF_MAIN_STREAM, default=o.get(CONF_MAIN_STREAM, False)): bool,
+                vol.Optional(CONF_PUBLIC_HOST, default=o.get(CONF_PUBLIC_HOST, "")): str,
+                vol.Required(CONF_WEBRTC_PORT, default=o.get(CONF_WEBRTC_PORT, DEFAULT_WEBRTC_PORT)): int,
                 vol.Required(CONF_MONITOR_TARGET, default=o.get(CONF_MONITOR_TARGET, DEFAULT_MONITOR_TARGET)): str,
                 vol.Required(CONF_LOCAL_SIP_PORT, default=o.get(CONF_LOCAL_SIP_PORT, DEFAULT_LOCAL_SIP_PORT)): int,
                 vol.Required(CONF_RTP_PORT, default=o.get(CONF_RTP_PORT, DEFAULT_RTP_PORT)): int,
