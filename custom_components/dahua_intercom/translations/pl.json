@@ -1,0 +1,98 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Dahua VTO (SIP)",
+        "description": "Konto pokoju zarejestrowane na serwerze SIP domofonu (np. 9901#1).",
+        "data": {
+          "host": "IP domofonu",
+          "sip_port": "Port SIP",
+          "username": "Konto SIP",
+          "password": "Hasło",
+          "realm": "Domena SIP"
+        }
+      },
+      "reconfigure": {
+        "title": "Dahua VTO (SIP)",
+        "data": {
+          "host": "IP domofonu",
+          "sip_port": "Port SIP",
+          "username": "Konto SIP",
+          "password": "Hasło",
+          "realm": "Domena SIP"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Domofon nie odpowiada",
+      "invalid_auth": "Rejestracja odrzucona (konto lub hasło)",
+      "port_in_use": "Lokalny port SIP jest zajęty"
+    },
+    "abort": {
+      "already_configured": "Już skonfigurowane",
+      "reconfigure_successful": "Zapisano"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Opcje",
+        "data": {
+          "answer_on_view": "Odbierz dzwoniące połączenie po otwarciu podglądu",
+          "monitor_on_view": "Połącz z domofonem po otwarciu podglądu",
+          "monitor_target": "Numer domofonu do podglądu",
+          "local_sip_port": "Lokalny port SIP",
+          "rtp_port": "Lokalny port RTP (audio; wideo +2)",
+          "rtsp_host": "Adres serwera RTSP",
+          "rtsp_port": "Port serwera RTSP",
+          "local_ip": "IP Home Assistant podawane domofonowi (puste = automatycznie)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "ringing": {
+        "name": "Dzwoni"
+      },
+      "registered": {
+        "name": "Rejestracja SIP"
+      }
+    },
+    "button": {
+      "answer": {
+        "name": "Odbierz"
+      },
+      "hangup": {
+        "name": "Rozłącz"
+      },
+      "live_view": {
+        "name": "Podgląd"
+      }
+    },
+    "event": {
+      "doorbell": {
+        "name": "Dzwonek",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "ring": "Dzwonek"
+            }
+          }
+        }
+      }
+    },
+    "sensor": {
+      "call_state": {
+        "name": "Połączenie",
+        "state": {
+          "idle": "Bezczynny",
+          "ringing": "Dzwoni",
+          "calling": "Łączenie",
+          "talking": "Rozmowa",
+          "live_view": "Podgląd"
+        }
+      }
+    }
+  }
+}

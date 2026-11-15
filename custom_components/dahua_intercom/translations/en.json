@@ -1,0 +1,98 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Dahua VTO (SIP)",
+        "description": "Room account registered on the door station's own SIP server (e.g. 9901#1).",
+        "data": {
+          "host": "Door station IP",
+          "sip_port": "SIP port",
+          "username": "SIP account",
+          "password": "Password",
+          "realm": "SIP domain"
+        }
+      },
+      "reconfigure": {
+        "title": "Dahua VTO (SIP)",
+        "data": {
+          "host": "Door station IP",
+          "sip_port": "SIP port",
+          "username": "SIP account",
+          "password": "Password",
+          "realm": "SIP domain"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "No answer from the door station",
+      "invalid_auth": "Registration rejected (account or password)",
+      "port_in_use": "Local SIP port in use"
+    },
+    "abort": {
+      "already_configured": "Already configured",
+      "reconfigure_successful": "Saved"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Options",
+        "data": {
+          "answer_on_view": "Answer a ringing call when the live view opens",
+          "monitor_on_view": "Call the door station when the live view opens",
+          "monitor_target": "Door station number for live view",
+          "local_sip_port": "Local SIP port",
+          "rtp_port": "Local RTP port (audio; video uses +2)",
+          "rtsp_host": "RTSP server bind address",
+          "rtsp_port": "RTSP server port",
+          "local_ip": "Home Assistant IP sent to the door station (empty = automatic)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "ringing": {
+        "name": "Ringing"
+      },
+      "registered": {
+        "name": "SIP registered"
+      }
+    },
+    "button": {
+      "answer": {
+        "name": "Answer"
+      },
+      "hangup": {
+        "name": "Hang up"
+      },
+      "live_view": {
+        "name": "Live view"
+      }
+    },
+    "event": {
+      "doorbell": {
+        "name": "Doorbell",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "ring": "Ring"
+            }
+          }
+        }
+      }
+    },
+    "sensor": {
+      "call_state": {
+        "name": "Call",
+        "state": {
+          "idle": "Idle",
+          "ringing": "Ringing",
+          "calling": "Connecting",
+          "talking": "Talking",
+          "live_view": "Live view"
+        }
+      }
+    }
+  }
+}
