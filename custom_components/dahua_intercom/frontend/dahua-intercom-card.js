@@ -7,23 +7,25 @@
  * before answering. "Odbierz" answers the SIP call, unmutes the door audio and
  * enables the microphone in the same tap (needed for iOS autoplay rules).
  */
-const VERSION = "0.2.0";
+const VERSION = "0.3.0";
 
 const DEFAULTS = {
   camera: "camera.domofon_domofon",
   call_sensor: "sensor.domofon_call",
   answer: "button.domofon_answer",
+  call: "button.domofon_live_view",
   hangup: "button.domofon_hang_up",
   lock: "lock.domofon_elektrozaczep",
   title: "Domofon",
-  preview_seconds: 60,
 };
 
+const IN_CALL = ["talking", "live_view", "calling"];
+
 const LABELS = {
-  idle: "Dotknij obrazu, aby zobaczyć podgląd",
-  preview: "Podgląd",
+  preview: "Podgląd na żywo",
   ringing: "Ktoś dzwoni",
   talking: "Rozmowa",
+  calling: "Łączenie z furtką…",
   talking_elsewhere: "Odebrano na innym urządzeniu",
   connecting: "Łączenie…",
   reconnecting: "Wznawianie połączenia…",
@@ -64,9 +66,13 @@ class DahuaIntercomCard extends HTMLElement {
   }
 
   connectedCallback() {
-    this._visible = true;
     this._onVisibility = () => {
-      if (document.visibilityState === "visible" && this._wanted() && !this._isConnected()) this._restart("visible");
+      if (document.visibilityState !== "visible") {
+        // app in the background: free the stream (and the microphone) unless we are in a call
+        if (!IN_CALL.includes(this._callState) && this._callState !== "ringing") this._stop();
+      } else if (this._wanted() && !this._isConnected()) {
+        this._restart("visible");
+      }
     };
     document.addEventListener("visibilitychange", this._onVisibility);
     if (this._hass && this._wanted()) this._start();
@@ -118,7 +124,7 @@ class DahuaIntercomCard extends HTMLElement {
           <div class="mic" hidden>🎙 mikrofon</div>
         </div>
         <div class="buttons">
-          <button class="answer"><ha-icon icon="mdi:phone"></ha-icon>Odbierz</button>
+          <button class="answer"><ha-icon icon="mdi:phone"></ha-icon><span class="answer-label">Połącz</span></button>
           <button class="hangup"><ha-icon icon="mdi:phone-hangup"></ha-icon>Zakończ</button>
           <button class="open"><ha-icon icon="mdi:door-open"></ha-icon>Otwórz</button>
         </div>
@@ -126,7 +132,7 @@ class DahuaIntercomCard extends HTMLElement {
     const $ = (s) => root.querySelector(s);
     this._els = {
       title: $(".title"), status: $(".status"), video: $("video"), overlay: $(".overlay"), mic: $(".mic"),
-      videoBox: $(".video"), answer: $(".answer"), hangup: $(".hangup"), open: $(".open"),
+      videoBox: $(".video"), answer: $(".answer"), answerLabel: $(".answer-label"), hangup: $(".hangup"), open: $(".open"),
     };
     this._els.answer.addEventListener("click", () => this._answer());
     this._els.hangup.addEventListener("click", () => this._hangup());
@@ -138,23 +144,26 @@ class DahuaIntercomCard extends HTMLElement {
     if (!this._els) return;
     const s = this._callState;
     const ringing = s === "ringing";
-    const talking = s === "talking";
+    const talking = IN_CALL.includes(s);
     let label;
     if (this._flash) label = this._flash;
     else if (this._error) label = LABELS.error;
+    else if (s === "calling") label = LABELS.calling;
     else if (talking) label = this._answeredHere ? LABELS.talking : LABELS.talking_elsewhere;
     else if (ringing) label = LABELS.ringing;
     else if (this._pc) label = LABELS.preview;
     else label = "";
     this._els.status.textContent = label;
     this._els.status.className = "status " + (ringing ? "ringing" : talking ? "talking" : "");
-    this._els.answer.disabled = !ringing;
+    this._els.answerLabel.textContent = ringing ? "Odbierz" : "Połącz";
+    const sipOk = s !== "unavailable" && s !== "unknown";
+    this._els.answer.disabled = talking || !sipOk;
     this._els.answer.classList.toggle("pulse", ringing);
-    this._els.hangup.disabled = !(ringing || talking || this._pc);
+    this._els.hangup.disabled = !(ringing || talking);
     const lock = this._hass && this._hass.states[this._config.lock];
     this._els.open.disabled = !lock || lock.state === "unavailable";
     let overlay = "";
-    if (!this._pc) overlay = ringing || talking ? LABELS.connecting : LABELS.idle;
+    if (!this._pc) overlay = LABELS.connecting;
     else if (this._state === "connecting") overlay = LABELS.connecting;
     else if (this._state === "reconnecting") overlay = LABELS.reconnecting;
     this._els.overlay.textContent = overlay;
@@ -173,6 +182,7 @@ class DahuaIntercomCard extends HTMLElement {
 
   async _answer() {
     // Everything that needs a user gesture happens synchronously first.
+    const ringing = this._callState === "ringing";
     this._answeredHere = true;
     const v = this._els.video;
     v.muted = false;
@@ -182,25 +192,27 @@ class DahuaIntercomCard extends HTMLElement {
     else if (!this._micTrack) this._restart("mic"); // mic was not available before
     this._render();
     try {
-      await this._hass.callService("button", "press", { entity_id: this._config.answer });
+      await this._hass.callService("button", "press", { entity_id: ringing ? this._config.answer : this._config.call });
     } catch (e) {
-      console.warn("intercom answer failed", e);
+      console.warn("intercom answer/call failed", e);
+      this._flashMessage("Błąd: " + (e.message || e));
     }
   }
 
   async _hangup() {
+    const hadMic = !!this._micStream;
     this._answeredHere = false;
-    this._preview = false;
     if (this._micTrack) this._micTrack.enabled = false;
     this._els.video.muted = true;
-    if (this._callState === "ringing" || this._callState === "talking") {
+    if (this._callState === "ringing" || IN_CALL.includes(this._callState)) {
       try {
         await this._hass.callService("button", "press", { entity_id: this._config.hangup });
       } catch (e) {
         console.warn("intercom hangup failed", e);
       }
     }
-    this._stop();
+    // keep the picture; reconnect without the microphone so it is released
+    if (hadMic) { this._stop(); this._start(true); }
     this._render();
   }
 
@@ -219,22 +231,16 @@ class DahuaIntercomCard extends HTMLElement {
   }
 
   _tapVideo() {
-    if (this._pc) {
-      // a tap on a playing picture unmutes it (if we are in the call) or does nothing
-      if (this._answeredHere) { this._els.video.muted = false; this._els.video.play().catch(() => {}); }
-      return;
-    }
-    this._preview = true;
-    clearTimeout(this._previewTimer);
-    this._previewTimer = setTimeout(() => { this._preview = false; if (!this._wanted()) this._stop(); this._render(); },
-      this._config.preview_seconds * 1000);
-    this._start();
+    // a tap unmutes the picture during our own call; otherwise it (re)starts a stalled stream
+    if (this._pc && this._answeredHere) { this._els.video.muted = false; this._els.video.play().catch(() => {}); }
+    else if (!this._isConnected()) this._restart("tap");
   }
 
   // ---------------------------------------------------------- call state
 
   _wanted() {
-    return this._callState === "ringing" || this._callState === "talking" || !!this._preview;
+    // always-on while the card is shown and the app is in the foreground
+    return this.isConnected && document.visibilityState === "visible";
   }
 
   _onCallState(prev, cur) {
@@ -243,19 +249,17 @@ class DahuaIntercomCard extends HTMLElement {
       if (this._els) this._els.video.muted = true;
       if (this._pc && !this._micTrack) { this._restart("ring: add microphone"); return; }
     }
-    if (cur === "talking" && this._micTrack) this._micTrack.enabled = !!this._answeredHere;
-    if (cur !== "talking" && cur !== "ringing") {
+    const inCall = IN_CALL.includes(cur);
+    if (inCall && this._micTrack) this._micTrack.enabled = !!this._answeredHere;
+    if (!inCall && cur !== "ringing") {
+      const hadMic = !!this._micStream;
       this._answeredHere = false;
       if (this._micTrack) this._micTrack.enabled = false;
       if (this._els) this._els.video.muted = true;
+      // call over: reconnect without the microphone so it is released
+      if (hadMic && this._pc && (IN_CALL.includes(prev) || prev === "ringing")) { this._restart("call ended"); return; }
     }
-    if (this._wanted()) {
-      if (!this._pc && this.isConnected) this._start();
-    } else if (this._pc && !this._preview) {
-      // keep the picture a moment so the end of the call is visible
-      clearTimeout(this._stopTimer);
-      this._stopTimer = setTimeout(() => { if (!this._wanted()) this._stop(); this._render(); }, 4000);
-    }
+    if (this._wanted() && !this._pc && this._hass) this._start();
   }
 
   // ------------------------------------------------------------- WebRTC
@@ -289,7 +293,7 @@ class DahuaIntercomCard extends HTMLElement {
 
     // microphone: in the offer from the start (muted) so answering is instant;
     // not requested for a plain preview
-    const needMic = this._callState === "ringing" || this._callState === "talking" || this._answeredHere;
+    const needMic = this._callState === "ringing" || this._answeredHere;
     if (needMic && !this._micStream) {
       try {
         this._micStream = await navigator.mediaDevices.getUserMedia({
@@ -302,7 +306,7 @@ class DahuaIntercomCard extends HTMLElement {
     if (gen !== this._gen) return;
     this._micTrack = this._micStream ? this._micStream.getAudioTracks()[0] : null;
     if (this._micTrack) {
-      this._micTrack.enabled = this._callState === "talking" && !!this._answeredHere;
+      this._micTrack.enabled = IN_CALL.includes(this._callState) && !!this._answeredHere;
       pc.addTransceiver(this._micTrack, { direction: "sendonly" });
     }
     pc.addTransceiver("video", { direction: "recvonly" });

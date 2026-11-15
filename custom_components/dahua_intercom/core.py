@@ -35,6 +35,8 @@ from .vto_rtsp import VtoRtspClient
 
 _LOGGER = logging.getLogger(__name__)
 
+_IN_CALL = (STATE_TALKING, STATE_LIVE_VIEW, STATE_CALLING)
+
 
 class IntercomCore:
     """Runtime object for one door station."""
@@ -152,9 +154,16 @@ class IntercomCore:
             self._refresh()
 
     async def async_live_view(self) -> bool:
-        """Kept for the old button: picture now comes from RTSP, so just start it."""
-        self._update_upstream(force=True)
-        return True
+        """"Połącz": call the door station ourselves for a two-way talk (or answer a ring)."""
+        if self.ringing:
+            return await self.async_answer()
+        async with self._busy:
+            if self.sip.call is not None and self.sip.call.state in ("active", "calling"):
+                return True  # already connected
+            self._update_upstream(force=True)
+            ok = await self.sip.call_out(self.monitor_target)
+            _LOGGER.info("Outgoing call to %s %s", self.monitor_target, "ok" if ok else "failed")
+            return ok
 
     async def async_snapshot(self) -> bytes | None:
         self._update_upstream(force=True)
@@ -190,7 +199,7 @@ class IntercomCore:
 
     @callback
     def _update_upstream(self, force: bool = False) -> None:
-        wanted = force or self.viewers > 0 or self.ringing or self.state == STATE_TALKING
+        wanted = force or self.viewers > 0 or self.ringing or self.state in _IN_CALL
         loop = self.hass.loop
         if wanted:
             if self._upstream_stop:
@@ -198,7 +207,7 @@ class IntercomCore:
                 self._upstream_stop = None
             if self.upstream is None or not self.upstream.running:
                 self.hass.async_create_task(self._ensure_upstream())
-            if force and self.viewers == 0 and not self.ringing and self.state != STATE_TALKING:
+            if force and self.viewers == 0 and not self.ringing and self.state not in _IN_CALL:
                 # nobody may come: still stop later
                 self._upstream_stop = loop.call_later(UPSTREAM_IDLE_S, self._stop_upstream)
         elif self.upstream and self.upstream.running and self._upstream_stop is None:
@@ -207,7 +216,7 @@ class IntercomCore:
     @callback
     def _stop_upstream(self) -> None:
         self._upstream_stop = None
-        if self.viewers > 0 or self.ringing or self.state == STATE_TALKING:
+        if self.viewers > 0 or self.ringing or self.state in _IN_CALL:
             return
         if self.upstream:
             _LOGGER.debug("Stopping VTO RTSP (idle)")

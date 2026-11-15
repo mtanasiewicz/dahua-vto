@@ -69,7 +69,7 @@
         "name": "Rozłącz"
       },
       "live_view": {
-        "name": "Podgląd"
+        "name": "Połącz"
       }
     },
     "event": {
@@ -92,7 +92,7 @@
           "ringing": "Dzwoni",
           "calling": "Łączenie",
           "talking": "Rozmowa",
-          "live_view": "Podgląd"
+          "live_view": "Rozmowa (połączenie wychodzące)"
         }
       }
     },
