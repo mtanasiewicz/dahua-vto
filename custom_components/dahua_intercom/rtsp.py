@@ -58,7 +58,31 @@ class _Client:
         self.channels: dict[int, int] = {}  # track -> interleaved RTP channel
         self.playing = False
         self.backchannel = False
+        self.back_channels: set[int] = set()  # every channel offered for track 2
+        self.frames: dict[int, int] = {}  # interleaved channel -> frames received
         self.peer = writer.get_extra_info("peername")
+
+    def _on_frame(self, ch: int, data: bytes) -> None:
+        """Interleaved frame sent by the client (backchannel RTP or RTCP reports)."""
+        n = self.frames.get(ch, 0) + 1
+        self.frames[ch] = n
+        if n == 1 or n % 500 == 0:
+            _LOGGER.debug(
+                "RTSP %s: frame #%d on channel %d (%d bytes, b0=%#x b1=%#x), back=%s",
+                self.peer, n, ch, len(data), data[0] if data else 0, data[1] if len(data) > 1 else 0,
+                sorted(self.back_channels),
+            )
+        if len(data) <= 12 or data[0] >> 6 != 2:
+            return
+        pt = data[1] & 0x7F
+        if 72 <= pt <= 76:
+            return  # RTCP (PT byte 200-204)
+        if ch not in self.back_channels and pt not in (0, 8):
+            return
+        payload = _rtp_payload(data)
+        if pt == 0:
+            payload = payload.translate(_ULAW_TO_ALAW)
+        self.server.on_mic(payload)
 
     # ------------------------------------------------------------ I/O
 
@@ -79,8 +103,7 @@ class _Client:
                     hdr = await self.reader.readexactly(3)
                     ch, size = hdr[0], struct.unpack("!H", hdr[1:])[0]
                     data = await self.reader.readexactly(size)
-                    if self.channels.get(TRACK_BACK) == ch and len(data) > 12:
-                        self.server.on_mic(_rtp_payload(data))
+                    self._on_frame(ch, data)
                     continue
                 head = first + await self.reader.readuntil(b"\r\n\r\n")
                 await self._handle(head.decode(errors="replace"))
@@ -91,6 +114,7 @@ class _Client:
         except Exception:  # noqa: BLE001
             _LOGGER.exception("RTSP client error")
         finally:
+            _LOGGER.debug("RTSP %s closed, frames per channel: %s", self.peer, self.frames)
             self.writer.close()
             self.server.remove(self)
 
@@ -123,6 +147,9 @@ class _Client:
                 return
             ch = int(transport.split("interleaved=")[1].split("-")[0].split(";")[0])
             self.channels[track] = ch
+            if track == TRACK_BACK:
+                self.back_channels.add(ch)
+            _LOGGER.debug("RTSP SETUP track %d transport=%r -> channel %d", track, transport, ch)
             self._reply(
                 cseq,
                 f"Transport: RTP/AVP/TCP;unicast;interleaved={ch}-{ch + 1}\r\nSession: {self.session};timeout=60\r\n",
@@ -157,6 +184,27 @@ def _track_from_url(url: str) -> int | None:
             return None
         return t if t in (TRACK_VIDEO, TRACK_AUDIO, TRACK_BACK) else None
     return None
+
+
+def _ulaw_to_linear(u: int) -> int:
+    u = ~u & 0xFF
+    t = (((u & 0x0F) << 3) + 0x84) << ((u & 0x70) >> 4)
+    return (0x84 - t) if u & 0x80 else (t - 0x84)
+
+
+def _linear_to_alaw(pcm: int) -> int:
+    mask = 0xD5 if pcm >= 0 else 0x55
+    pcm = pcm if pcm >= 0 else -pcm - 1
+    pcm = min(pcm, 0x7FFF)
+    seg = 0
+    for seg, end in enumerate((0xFF, 0x1FF, 0x3FF, 0x7FF, 0xFFF, 0x1FFF, 0x3FFF, 0x7FFF)):
+        if pcm <= end:
+            break
+    aval = (pcm >> 4) & 0x0F if seg < 2 else (pcm >> (seg + 3)) & 0x0F
+    return ((seg << 4) | aval) ^ mask
+
+
+_ULAW_TO_ALAW = bytes(_linear_to_alaw(_ulaw_to_linear(i)) for i in range(256))
 
 
 def _rtp_payload(pkt: bytes) -> bytes:
