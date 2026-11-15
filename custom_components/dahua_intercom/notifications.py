@@ -89,6 +89,11 @@ def _ring_payload(phone: Phone, level: str, *, url: str, image: str, sound: str 
     return {"title": "Domofon", "message": "Ktoś dzwoni do furtki", "data": data}
 
 
+def _open_app_payload(url: str) -> dict:
+    """Android: bring the Companion app up on the intercom view (needs "Display over other apps")."""
+    return {"message": "command_webview", "data": {"command": url, "priority": "high", "ttl": 0}}
+
+
 def _clear_payload(phone: Phone) -> dict:
     data: dict = {"tag": TAG}
     if phone.os == "android":
@@ -104,6 +109,7 @@ class Notifier:
         self.phones: list[Phone] = discover_phones(hass)
         self.levels: dict[str, str] = {p.service: DEFAULT_LEVEL for p in self.phones}
         self.sounds: dict[str, str] = {}
+        self.auto_open: dict[str, bool] = {}
         self._sent: set[str] = set()
 
     def set_level(self, service: str, level: str) -> None:
@@ -112,6 +118,9 @@ class Notifier:
 
     def set_sound(self, service: str, sound: str) -> None:
         self.sounds[service] = sound.strip() or DEFAULT_SOUND
+
+    def set_auto_open(self, service: str, on: bool) -> None:
+        self.auto_open[service] = on
 
     async def ring(self) -> None:
         targets = [p for p in self.phones if self.levels.get(p.service, DEFAULT_LEVEL) != "off"]
@@ -129,7 +138,12 @@ class Notifier:
                     ),
                 )
                 for p in targets
-            )
+            ),
+            *(
+                self._send(p, _open_app_payload(self.url))
+                for p in targets
+                if p.os == "android" and self.auto_open.get(p.service)
+            ),
         )
 
     async def clear(self) -> None:

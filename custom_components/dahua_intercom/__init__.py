@@ -47,7 +47,7 @@ from .core import IntercomCore
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = [Platform.BINARY_SENSOR, Platform.BUTTON, Platform.CAMERA, Platform.EVENT, Platform.SELECT, Platform.SENSOR, Platform.TEXT]
+PLATFORMS = [Platform.BINARY_SENSOR, Platform.BUTTON, Platform.CAMERA, Platform.EVENT, Platform.SELECT, Platform.SENSOR, Platform.SWITCH, Platform.TEXT]
 
 CARD_URL = "/dahua_intercom/dahua-intercom-card.js"
 

@@ -121,6 +121,11 @@
       "notify_sound": {
         "name": "Ring sound {phone}"
       }
+    },
+    "switch": {
+      "auto_open": {
+        "name": "Open intercom on ring {phone}"
+      }
     }
   }
 }

@@ -121,6 +121,11 @@
       "notify_sound": {
         "name": "Dźwięk domofonu {phone}"
       }
+    },
+    "switch": {
+      "auto_open": {
+        "name": "Otwieraj domofon przy dzwonku {phone}"
+      }
     }
   }
 }
