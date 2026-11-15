@@ -32,6 +32,9 @@ notification opens the app's home page. The integration adds `?intercom=live` to
 the card then shows the live stream at once for a minute (even if the ring is already over),
 instead of the still pictures it shows when idle.
 
+When idle, the play button in the top-right corner of the picture does the same on demand
+(live for a minute); while that live view runs, the stop button goes back to still pictures.
+
 Ring notifications are sent by the integration to every phone registered with the Companion app.
 Per phone (entities of the intercom device):
 

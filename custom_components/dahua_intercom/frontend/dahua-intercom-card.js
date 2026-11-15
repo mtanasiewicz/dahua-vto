@@ -4,8 +4,9 @@
  * Idle: a still picture refreshed every few seconds (little data).
  * Ringing, or a call active on any device: live picture + door audio over
  * WebRTC (Home Assistant's camera WebRTC API).
- * Opened from the ring notification (URL has ?intercom=live): live for a minute,
- * even if the ring is already over by then.
+ * Opened from the ring notification (URL has ?intercom=live), or the play button
+ * over the still picture tapped: live for a minute, even if the ring is already
+ * over by then (the stop button returns to still pictures sooner).
  *
  * Buttons:
  *   Odbierz  - answer the ring (this device talks)
@@ -15,9 +16,9 @@
  *   Otwórz   - open the gate
  * The tap that answers/joins also unmutes and enables the microphone (iOS autoplay rules).
  */
-const VERSION = "0.7.0";
+const VERSION = "0.8.0";
 const LIVE_PARAM = "intercom";
-const LIVE_FROM_NOTIFICATION_MS = 60000;
+const LIVE_ON_DEMAND_MS = 60000;
 
 const DEFAULTS = {
   camera: "camera.domofon_intercom",
@@ -116,9 +117,13 @@ class DahuaIntercomCard extends HTMLElement {
                    color:#fff; font-size:14px; text-align:center; padding:16px; pointer-events:none;
                    background: rgba(0,0,0,.35); }
         .overlay[hidden] { display:none; }
-        .badge { position:absolute; top:8px; right:8px; background:rgba(0,0,0,.5); color:#fff; border-radius:12px;
+        .badge { position:absolute; top:8px; left:8px; background:rgba(0,0,0,.5); color:#fff; border-radius:12px;
                  padding:2px 8px; font-size:12px; }
         .badge[hidden] { display:none; }
+        .play { position:absolute; top:8px; right:8px; width:44px; height:44px; padding:0; border-radius:50%;
+                background:rgba(0,0,0,.55); flex-direction:row; justify-content:center; }
+        .play ha-icon { --mdc-icon-size: 28px; }
+        .play[hidden] { display:none; }
         .buttons { display:grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 12px 16px 16px; }
         button { font: inherit; font-size: 15px; font-weight: 600; border: none; border-radius: 12px; padding: 14px 8px;
                  color: #fff; cursor: pointer; display:flex; flex-direction:column; align-items:center; gap:4px; }
@@ -137,6 +142,7 @@ class DahuaIntercomCard extends HTMLElement {
           <video playsinline autoplay muted hidden></video>
           <div class="overlay" hidden></div>
           <div class="badge" hidden></div>
+          <button class="play" hidden title="Podgląd na żywo"><ha-icon icon="mdi:play"></ha-icon></button>
         </div>
         <div class="buttons">
           <button class="answer"><ha-icon icon="mdi:phone"></ha-icon><span class="answer-label">Połącz</span></button>
@@ -148,8 +154,13 @@ class DahuaIntercomCard extends HTMLElement {
     this._els = {
       title: $(".title"), status: $(".status"), video: $("video"), img: $("img"), overlay: $(".overlay"),
       badge: $(".badge"), answer: $(".answer"), answerLabel: $(".answer-label"), answerIcon: $(".answer ha-icon"),
-      hangup: $(".hangup"), open: $(".open"),
+      hangup: $(".hangup"), open: $(".open"), play: $(".play"), playIcon: $(".play ha-icon"),
     };
+    this._els.play.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (this._onDemandOnly()) this._endLiveOnDemand();
+      else this._liveOnDemand();
+    });
     this._els.answer.addEventListener("click", () => this._primary());
     this._els.hangup.addEventListener("click", () => this._hangup());
     this._els.open.addEventListener("click", () => this._open());
@@ -196,6 +207,11 @@ class DahuaIntercomCard extends HTMLElement {
     const micOn = this._micTrack && this._micTrack.enabled;
     this._els.badge.textContent = micOn ? "🎙 mikrofon" : live ? "na żywo" : "";
     this._els.badge.hidden = !this._els.badge.textContent;
+    // play over the still picture; stop while live only because of it (or the notification)
+    const onDemand = this._onDemandOnly();
+    this._els.play.hidden = !(onDemand || (!this._pc && !ringing && !inCall));
+    this._els.playIcon.setAttribute("icon", onDemand ? "mdi:stop" : "mdi:play");
+    this._els.play.title = onDemand ? "Wróć do zdjęć" : "Podgląd na żywo";
   }
 
   _flashMessage(text) {
@@ -211,10 +227,32 @@ class DahuaIntercomCard extends HTMLElement {
     return this.isConnected && document.visibilityState === "visible";
   }
 
-  _liveWanted() {
+  _liveForCall() {
     const s = this._callState;
-    const fromNotification = Date.now() < (this._liveUntil || 0);
-    return this._visible() && (s === "ringing" || IN_CALL.includes(s) || !!this._joined || fromNotification);
+    return s === "ringing" || IN_CALL.includes(s) || !!this._joined;
+  }
+
+  _liveWanted() {
+    const onDemand = Date.now() < (this._liveUntil || 0);
+    return this._visible() && (this._liveForCall() || onDemand);
+  }
+
+  /** Live only because of the play button / notification, not because of a ring or call. */
+  _onDemandOnly() {
+    return !!this._pc && Date.now() < (this._liveUntil || 0) && !this._liveForCall();
+  }
+
+  _liveOnDemand() {
+    this._liveUntil = Date.now() + LIVE_ON_DEMAND_MS;
+    clearTimeout(this._liveTimer);
+    this._liveTimer = setTimeout(() => this._sync(), LIVE_ON_DEMAND_MS + 100);
+    this._sync();
+  }
+
+  _endLiveOnDemand() {
+    this._liveUntil = 0;
+    clearTimeout(this._liveTimer);
+    this._sync();
   }
 
   /** The ring notification opens the page with ?intercom=live: go live at once, for a while. */
@@ -224,9 +262,9 @@ class DahuaIntercomCard extends HTMLElement {
     url.searchParams.delete(LIVE_PARAM);
     // drop it so a reload or a later visit shows still pictures again
     window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash);
-    this._liveUntil = Date.now() + LIVE_FROM_NOTIFICATION_MS;
+    this._liveUntil = Date.now() + LIVE_ON_DEMAND_MS;
     clearTimeout(this._liveTimer);
-    this._liveTimer = setTimeout(() => this._sync(), LIVE_FROM_NOTIFICATION_MS + 100);
+    this._liveTimer = setTimeout(() => this._sync(), LIVE_ON_DEMAND_MS + 100);
     return true;
   }
 
