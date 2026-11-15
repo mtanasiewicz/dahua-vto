@@ -1,6 +1,7 @@
 """Base entity."""
 from __future__ import annotations
 
+from homeassistant.core import callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import Entity
@@ -31,5 +32,6 @@ class IntercomEntity(Entity):
             async_dispatcher_connect(self.hass, SIGNAL_UPDATE.format(self.core.entry_id), self._handle_update)
         )
 
+    @callback
     def _handle_update(self) -> None:
         self.async_write_ha_state()

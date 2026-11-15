@@ -29,5 +29,6 @@ class DoorbellEvent(IntercomEntity, EventEntity):
         self._trigger_event("ring", {"caller": event.data.get("caller")})
         self.async_write_ha_state()
 
+    @callback
     def _handle_update(self) -> None:
         """Event entities only change when they fire."""
